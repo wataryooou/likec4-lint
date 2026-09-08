@@ -1,0 +1,43 @@
+
+specification {
+  element system {
+    notation 'test'
+    technology 'test'
+  }
+  relationship rel1 {
+    notation 'test'
+    technology 'test'
+  }
+}
+model {
+  system sys1 {
+    title 'test'
+    description 'test'
+    technology 'test'
+  }
+  sys1 -> sys2 {
+    title 'test'
+    description 'test'
+    technology 'test'
+  }
+}
+views {
+  view {
+    title 'test'
+    description 'test'
+    include
+      * with {
+        notation 'test'
+        title 'test'
+        description 'test'
+        technology 'test'
+      }
+    include
+      * -> * with {
+        notation 'test'
+        title 'test'
+        description 'test'
+        technology 'test'
+      }
+  }
+}

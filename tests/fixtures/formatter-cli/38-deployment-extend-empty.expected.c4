@@ -1,0 +1,16 @@
+specification {
+  element svc
+  deploymentNode node
+}
+model {
+  target = svc
+}
+deployment {
+  env = node {
+    child = node {
+      instanceOf target
+    }
+  }
+  extend env.child {
+  }
+}

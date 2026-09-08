@@ -1,0 +1,13 @@
+
+model {
+
+  system sys1
+
+  system sys2 {
+
+    description 'some'
+
+    metadata
+  }
+
+}

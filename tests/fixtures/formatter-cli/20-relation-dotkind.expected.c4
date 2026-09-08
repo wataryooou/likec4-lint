@@ -1,0 +1,9 @@
+specification {
+  element el
+  relationship uses
+}
+model {
+  a = el
+  b = el
+  a .uses b
+}

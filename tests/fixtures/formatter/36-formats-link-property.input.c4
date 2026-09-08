@@ -1,0 +1,8 @@
+
+model {
+  system sys1 {
+    link   http://example.com
+    link      http://example.com    'title'
+    link  :   http://example.com   'title'   ;
+  }
+}

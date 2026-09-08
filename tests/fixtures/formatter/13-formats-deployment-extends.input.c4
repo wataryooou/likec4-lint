@@ -1,0 +1,16 @@
+
+deployment{
+extend   zone1    {
+#tag1 ,  #tag2
+link   http://example.com    'extended link'
+metadata    {
+prop1    'some'
+prop2'other'
+prop3  :    'another'   ;
+}
+
+instanceOf    test
+cluster=node{
+}
+}
+}

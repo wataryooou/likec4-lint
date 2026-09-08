@@ -1,0 +1,25 @@
+
+views {
+  dynamic view index {
+    AAA
+      -> BBB {
+        line solid
+      }
+      -> CCC 'cd...' {
+        color red
+        title 'text'
+      }
+
+    parallel {
+
+      PA
+        -> PB { }
+
+        -> PC { }
+
+
+      // Should be single line
+      PD -> PE { } -> PF
+    }
+  }
+}

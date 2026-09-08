@@ -1,0 +1,11 @@
+
+views {
+  view {
+    style   *  ,sys1   ,   sys2 {
+    }
+  }
+  deployment view prod {
+    style   *  ,sys1   ,   sys2 {
+    }
+  }
+}

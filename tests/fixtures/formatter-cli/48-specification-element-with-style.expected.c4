@@ -1,0 +1,10 @@
+specification {
+  element system {
+    style {
+      shape: rectangle
+    }
+  }
+}
+model {
+  a = system
+}

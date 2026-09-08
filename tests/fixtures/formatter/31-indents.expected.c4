@@ -1,0 +1,17 @@
+
+views {
+  view index {
+    include *
+    style user {
+      color red
+    }
+  }
+  dynamic view dynamic-view-1 {
+    parallel {
+      sys1 -> sys2
+    }
+    par {
+      sys2 -> sys3
+    }
+  }
+}

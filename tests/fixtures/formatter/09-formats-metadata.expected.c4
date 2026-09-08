@@ -1,0 +1,17 @@
+
+model {
+  system sys1 {
+    metadata {
+      prop1 'some'
+      prop2 'other'
+      prop3: 'another';
+    }
+  }
+  sys1 -> sys2 {
+    metadata {
+      prop1 'some'
+      prop2 'other'
+      prop3: 'another';
+    }
+  }
+}

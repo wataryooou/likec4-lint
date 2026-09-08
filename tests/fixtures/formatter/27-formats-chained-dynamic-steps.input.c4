@@ -1,0 +1,6 @@
+
+views {dynamic
+view index {
+A ->  B {    title   'ab...'   }    -> C    'cd...'
+}
+}

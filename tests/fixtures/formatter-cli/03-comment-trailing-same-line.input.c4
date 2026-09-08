@@ -1,0 +1,10 @@
+specification {
+  element system
+  tag important
+}
+model {
+  a = system 'A' // inline comment after element header
+  b = system 'B' {
+    #important // inline comment after a tag
+  }
+}

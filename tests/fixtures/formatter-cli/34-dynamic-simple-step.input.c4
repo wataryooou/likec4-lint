@@ -1,0 +1,12 @@
+specification {
+  element el
+}
+model {
+  a = el
+  b = el
+}
+views {
+  dynamic view index {
+    a -> b 'x'
+  }
+}

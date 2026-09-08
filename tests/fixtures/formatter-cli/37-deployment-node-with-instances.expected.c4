@@ -1,0 +1,14 @@
+specification {
+  element svc
+  deploymentNode node
+}
+model {
+  target = svc
+}
+deployment {
+  env = node {
+    instanceOf target;
+    s = instanceOf target 'Instance Title' {
+    }
+  }
+}

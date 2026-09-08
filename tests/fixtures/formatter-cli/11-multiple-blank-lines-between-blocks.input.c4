@@ -1,0 +1,17 @@
+specification {
+  element el
+}
+
+
+
+model {
+  a = el
+}
+
+
+
+views {
+  view index {
+    include *
+  }
+}

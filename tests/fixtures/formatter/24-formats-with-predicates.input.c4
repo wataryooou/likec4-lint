@@ -1,0 +1,9 @@
+
+views {
+  view {
+    include    *  with{   }
+    include * where tag = #test    with    {}
+    include -> *  with{ }
+    include -> * where tag = #test    with    {}
+  }
+}

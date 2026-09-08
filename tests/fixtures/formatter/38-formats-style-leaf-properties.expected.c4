@@ -1,0 +1,68 @@
+
+specification {
+  element system {
+    style {
+      color primary
+      opacity 30%
+      icon aws:person
+      shape queue
+      border solid
+      multiple true
+      size xs
+      padding small
+      textSize md
+    }
+  }
+  relationship rel1 {
+    color primary
+    line solid
+    head normal
+    tail normal
+  }
+}
+model {
+  system sys1 {
+    style {
+      color primary
+      opacity 30%
+      icon aws:person
+      shape queue
+      border solid
+    }
+  }
+  sys1 -> sys2 {
+    style {
+      color primary
+      line solid
+      head normal
+      tail normal
+    }
+  }
+}
+views {
+  view {
+    include
+      * with {
+        color primary
+        opacity 30%
+        icon aws:person
+        shape queue
+        border solid
+      }
+    include
+      * -> * with {
+        color primary
+        line solid
+        head normal
+        tail normal
+        notes 'test'
+      }
+    style * {
+      color primary
+      opacity 30%
+      icon aws:person
+      shape queue
+      border solid
+    }
+  }
+}

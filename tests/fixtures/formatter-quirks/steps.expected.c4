@@ -1,0 +1,19 @@
+model {
+  a = system
+  b = system
+}
+views {
+  dynamic view d {
+    a
+      -> b "x"
+      -> a "y"
+    a -> b {
+      color red
+    }
+    a
+      -> b "m"
+      -> a "n" {
+        color red
+      }
+  }
+}

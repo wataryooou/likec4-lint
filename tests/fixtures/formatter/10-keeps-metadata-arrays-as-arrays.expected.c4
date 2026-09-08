@@ -1,0 +1,11 @@
+
+specification {
+  element component
+}
+model {
+  component app {
+    metadata {
+      tags ['frontend', 'react', 'typescript']
+    }
+  }
+}

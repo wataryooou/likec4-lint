@@ -1,0 +1,10 @@
+
+deployment {
+  node zone1 {
+    instanceOf test
+    instanceOf test2 {
+      title 'test2'
+    }
+    testInst = instanceOf test
+  }
+}

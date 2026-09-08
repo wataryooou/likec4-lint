@@ -1,0 +1,7 @@
+import a from "proj";
+specification {
+  element el
+}
+model {
+  x = el
+}

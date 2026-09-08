@@ -1,0 +1,17 @@
+[package]
+name = "likec4-lint"
+description = "Lint rules and semantic model for the LikeC4 DSL"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+likec4-syntax.workspace = true
+rowan.workspace = true
+text-size.workspace = true
+serde.workspace = true
+rayon.workspace = true
+regex.workspace = true

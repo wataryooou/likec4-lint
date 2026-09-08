@@ -1,0 +1,13 @@
+specification {
+  element el
+}
+model {
+  a = el
+  b = el
+}
+views {
+  view index {
+    include *
+    rank same { a, b }
+  }
+}

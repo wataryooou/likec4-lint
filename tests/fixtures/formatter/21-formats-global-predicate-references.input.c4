@@ -1,0 +1,9 @@
+
+views {
+view {
+global    predicate     global-predicate
+}
+dynamic view view-dynamic {
+global    predicate     global-predicate
+}
+}

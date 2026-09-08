@@ -1,0 +1,10 @@
+specification {
+  element el
+}
+global {
+  styleGroup g {
+    style * {
+      color red
+    }
+  }
+}

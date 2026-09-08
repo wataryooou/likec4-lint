@@ -1,0 +1,9 @@
+specification {
+  element el
+  tag important {
+        color    #ff0000
+  }
+}
+model {
+  a = el
+}

@@ -1,0 +1,7 @@
+specification {
+  element el
+}
+model {
+  a = el { b = el}
+  c = el { d = el }
+}

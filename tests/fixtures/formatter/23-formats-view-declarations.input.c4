@@ -1,0 +1,15 @@
+
+views {
+  view    index{
+  }
+  view{
+  }
+  view  view1  of   el1  {
+  }
+  view  view2  extends   baseView  {
+  }
+  dynamic     view  view3  {
+  }
+  deployment     view  view4  {
+  }
+}

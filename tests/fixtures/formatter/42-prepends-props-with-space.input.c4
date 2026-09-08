@@ -1,0 +1,9 @@
+
+model {
+  component user'some title''description'
+}
+views {
+  view index {
+    include *
+  }
+}

@@ -1,0 +1,71 @@
+views "Use Cases" {
+
+  dynamic view order-fulfillment {
+    title 'Usecase 02: Order Fulfillment'
+    description '''
+      This use case describes the process of fulfilling an order.
+
+    '''
+
+    customer
+      -> boutique.checkout {
+        title 'Customer places order'
+        navigateTo place-order
+        notes '
+        The customer interacts with the web application to place an order.
+      '
+      }
+      -> payment-gateway 'initiates payment' {
+        notes '
+        Payment service initiates payment processing, which may take a few seconds to a few minutes.
+      '
+      }
+      -> boutique.payments 'confirms payment with webnook' {
+        notes '
+        When customer completes the payment, the payment gateway sends a confirmation as a webhook.
+      '
+      }
+      -> boutique.checkout 'confirms pending payment'
+
+    parallel {
+      boutique.checkout -> boutique.shipping 'requests fulfillment' {
+        notes '
+          The shipping service is requested to fulfill the order.
+        '
+      }
+      boutique.checkout -> boutique.email 'sends confirmation' {
+        notes '
+          Email confirmation is sent to the customer.
+        '
+      }
+      boutique.checkout -> boutique.db 'updates order status' {
+        notes '
+          The order status is updated to \'paid\'.
+        '
+      }
+    }
+    parallel {
+      boutique.shipping -> boutique.db {
+        title 'updates inventory'
+        notes '
+          The inventory is updated to reflect the shipped items.
+        '
+      }
+      boutique.shipping -> boutique.email {
+        title 'sends shipping confirmation'
+        notes '
+          Shipping confirmation is sent to the customer.
+        '
+      }
+    }
+
+
+    include
+      boutique with {
+        color muted
+        opacity 5%
+      }
+
+    autoLayout TopBottom
+  }
+}

@@ -1,0 +1,13 @@
+
+model {
+  component user "some title" "description"
+  component user2 {
+    description "some"
+  }
+}
+views {
+  view index {
+    description """markdown"""
+    include *
+  }
+}

@@ -1,0 +1,11 @@
+specification {
+  element el
+  tag t1
+  tag t2
+}
+model {
+  a = el
+  b = el
+  a -> b 'title' #t1, #t2 {
+  }
+}

@@ -1,0 +1,6 @@
+
+
+specification { element system }
+  model {
+    a = system
+  }

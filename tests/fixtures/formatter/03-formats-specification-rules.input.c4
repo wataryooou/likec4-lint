@@ -1,0 +1,10 @@
+
+specification{
+  element     el
+
+  relationship     rel
+
+  tag   tag1
+  color    custom      #123456
+  deploymentNode    node{}
+}

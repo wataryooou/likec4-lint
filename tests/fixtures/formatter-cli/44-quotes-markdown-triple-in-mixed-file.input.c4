@@ -1,0 +1,11 @@
+specification {
+  element el
+}
+model {
+  a = el 'Alpha'
+  b = el {
+    description """
+      markdown content
+    """
+  }
+}

@@ -1,0 +1,12 @@
+
+views {
+  deployment view index {
+    include    ->   test
+    include ->   test   ->
+    include test   <->
+    include test   -[  http  ]->
+    include test   .http
+    include test   ->
+    include test   ->  test2
+  }
+}

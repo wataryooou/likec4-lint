@@ -1,0 +1,21 @@
+
+views {
+  view {
+    group 'group1' {
+      color red
+      border solid
+      opacity 10%
+      include * with { }
+      include * where tag = #test with {}
+      group 'nested-group' {
+      }
+    }
+  }
+  view {
+    group 'group3' {
+      color: red;
+      border: solid;
+      opacity: 10%;
+    }
+  }
+}

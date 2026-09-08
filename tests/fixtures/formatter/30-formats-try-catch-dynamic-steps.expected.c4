@@ -1,0 +1,31 @@
+
+views {
+  dynamic view index {
+
+    try 'Try block' {
+      A
+        -> B
+        -> C
+    }
+    catch 'Catch block' {
+    } finally 'Finally' {
+      B -> C
+      opt 'Optional step' {
+        D -> E
+      }
+
+      par {
+        D -> E
+        A -> F
+      }
+    }
+    alt {
+      when '---' { A -> B }
+      if {
+      }
+      else {
+        A -> B
+      }
+    }
+  }
+}

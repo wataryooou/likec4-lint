@@ -1,0 +1,5 @@
+specification {
+  color custom rgb(1,2,3)
+}
+model {
+}

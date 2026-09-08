@@ -1,0 +1,11 @@
+
+specification {
+  element el
+  tag tag1
+  tag tag2
+}
+model {
+  el sys1 'test' {
+    #tag1, #tag2
+  }
+}

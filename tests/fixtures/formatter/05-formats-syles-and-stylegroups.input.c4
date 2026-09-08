@@ -1,0 +1,12 @@
+
+global{
+style    global-style    *,   some{
+color red
+notation 'some description'
+}
+styleGroup    global-style-group{
+style    *,other   {
+opacity 20%
+}
+}
+}

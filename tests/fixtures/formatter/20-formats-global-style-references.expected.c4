@@ -1,0 +1,9 @@
+
+views {
+  view {
+    global style global-style
+  }
+  dynamic view view-dynamic {
+    global style global-style
+  }
+}

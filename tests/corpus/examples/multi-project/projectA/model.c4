@@ -1,0 +1,252 @@
+model {
+
+  customer = actor 'Cloud System Customer' {
+    icon ./user.svg
+    description '
+      The regular customer of the system
+    '
+  }
+
+  cloud = system 'Cloud System' {
+    description '
+      Our SaaS platfrom that allows
+      customers to interact with
+      the latest technologies
+    '
+
+    ui = container 'Frontends' {
+      description '
+        All the frontend applications
+        of Cloud System
+      '
+      style {
+        shape browser
+      }
+      metadata {
+        version '2.1.1'
+      }
+    }
+
+    legacy = container 'Cloud Legacy' {
+      #deprecated
+      description '''
+        The **legacy** version of our SaaS
+        MVP as was presented to the first customers
+
+    '''
+      link ./.github/workflows/update-diagrams.yml#L19-L25 'L19-L25'
+    }
+
+    next = container 'Cloud Next' {
+      description 'Cloud Next is the next version of our cloud systems'
+    }
+
+    supportUser = actor 'Support User' 'Support team member with limited access' {
+      description '''
+        Support users require limited access to the system
+        to help customers with their issues
+
+      '''
+      -> customer 'helps with questions' {
+        metadata {
+          rps '1000'
+        }
+      }
+    }
+  }
+  customer .uses cloud 'uses and pays' {
+    navigateTo dynamic-view-1
+  }
+
+}
+
+views {
+
+  view index {
+    title 'Landscape'
+    description '''
+> [!NOTE]
+> Information that users should know.
+
+> [!TIP]
+> Helpful advice for better results.
+
+> [!IMPORTANT]
+> Key information for success.
+
+> [!WARNING]
+> Urgent information to avoid problems.
+
+> [!CAUTION]
+> Risks or negative outcomes.
+    '''
+
+    group 'SAAS' {
+      color primary
+      opacity 20%
+      include *
+      exclude customer
+    }
+    group 'External' {
+      color green
+      opacity 100%
+      include
+        customer with {
+          color green
+        }
+      exclude -> customer
+    }
+  }
+
+  view customer of customer {
+    title 'Context / Customer'
+    link https://github.com/likec4/template 'Repository'
+    include customer
+
+    group {
+      include
+        *,
+        customer -> cloud.ui with {
+          color red
+        },
+        supportUser
+    }
+
+    style supportUser {
+      color indigo
+    }
+    autoLayout BottomTop
+  }
+
+  dynamic view dynamic-view-1 {
+    title 'Use Cases / Dynamic View Example'
+
+    link https://docs.likec4.dev/dsl/views/dynamic/ 'Docs'
+
+    customer -> ui.dashboard 'opens' {
+      notes '''
+      > [!NOTE]
+      > Information that users should know.
+
+      Customer opens dashboard in Browser
+
+      '''
+    }
+    ui.dashboard -> cloud.graphql {
+      title '
+        requests data overt rest
+        for dashboard
+      '
+      technology 'unknown'
+      notes '
+        Next notes
+        Multi line
+      '
+    }
+    ui.dashboard <- cloud.graphql 'returns' {
+      technology 'unknown'
+      navigateTo cloud-to-amazon
+    }
+
+
+
+    alt {
+      when 'first' {
+        customer -> ui.mobile 'opens'
+
+        try {
+          ui.mobile -> cloud.graphql 'requests'
+        } catch 'OOps' {
+          loop 'until works' {
+            ui.mobile -> cloud.graphql 'requests with retry'
+          }
+          break 'not retryable' {
+            ui.mobile <- cloud.graphql
+          }
+        } finally {
+          cloud.next.backend -> cloud.events
+        }
+
+        ui.dashboard -> cloud.next.backend
+      }
+      if 'second' {
+        cloud.graphql -> cloud.next.backend 'First call' {
+          line solid
+          color red
+        }
+        parallel 'starting several streams, starting several streams
+        starting several streams' {
+          cloud.graphql
+            -> cloud.next.backend 'Stream 1'
+            -> cloud.events 'as'
+          cloud.graphql -> cloud.next.backend 'Stream 2'
+          opt 'Optional' {
+            cloud.graphql -> cloud.next.backend 'Stream 3'
+          }
+          cloud.graphql -> cloud.next.backend 'Stream 4'
+        }
+      }
+      else 'second' {
+        cloud.dashboard -> cloud.next.backend 'Stream 2'
+        opt 'Optional' {
+          cloud.graphql -> cloud.next.backend 'Stream 3'
+        }
+        cloud.graphql -> cloud.next.backend 'Stream 4'
+      }
+    }
+
+    cloud.next.backend <- cloud.events
+
+
+
+    include cloud
+
+    autoLayout TopBottom
+    style * {
+      color secondary
+    }
+    style cloud {
+      opacity 9%
+      color muted
+    }
+  }
+
+  dynamic view cloud-to-amazon {
+    title 'Use Cases / Cloud to amazon'
+
+    customer -> next.backend
+
+    next.backend -> next.events {
+      notes '''
+      - Backend triggers EventManager
+      - These calls enriched with data before publishing
+
+      '''
+    }
+    next.events -> amazon.sqs
+    next.backend -> amazon.aurora
+
+    parallel {
+      next.events -> amazon.sqs
+      next.graphql -> amazon.pg
+      next.backend -> amazon.aurora
+    }
+
+    include
+      cloud,
+      next._,
+      ui,
+      amazon
+
+    style next, ui, amazon {
+      opacity 10%
+    }
+
+    style amazon.* {
+      color amber
+    }
+
+    autoLayout TopBottom
+  }
+
+}

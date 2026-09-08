@@ -1,0 +1,6 @@
+specification {
+  deploymentNode node
+}
+  deployment {
+    a = node 'A'
+  }

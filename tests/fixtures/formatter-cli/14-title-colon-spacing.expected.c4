@@ -1,0 +1,11 @@
+specification {
+  element el
+}
+model {
+  a = el {
+    title: 'x'
+  }
+  b = el {
+    title: 'y';
+  }
+}

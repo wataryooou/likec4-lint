@@ -1,0 +1,10 @@
+
+specification {
+  element component
+}
+model {
+  component user {
+    title 'some title';
+    description 'description';
+  }
+}

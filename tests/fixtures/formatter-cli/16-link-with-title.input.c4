@@ -1,0 +1,8 @@
+specification {
+  element el
+}
+model {
+  a = el {
+    link https://example.com/docs 'Docs'
+  }
+}

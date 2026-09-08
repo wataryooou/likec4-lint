@@ -1,0 +1,9 @@
+
+specification{
+element     el {  style  { color    red    }   }
+
+
+element     el2
+{ style  { color    blue    }
+}
+}

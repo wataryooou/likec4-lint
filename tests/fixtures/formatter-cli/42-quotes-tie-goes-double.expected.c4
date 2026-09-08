@@ -1,0 +1,7 @@
+specification {
+  element el
+}
+model {
+  a = el "Alpha" "Beta"
+  b = el "Gamma" "Delta"
+}

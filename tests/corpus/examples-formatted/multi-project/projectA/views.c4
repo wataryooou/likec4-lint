@@ -1,0 +1,49 @@
+views 'Context' {
+
+  view cloud of cloud {
+    title 'Cloud System'
+    link https://github.com/likec4/template 'Repository'
+    link http://localhost:5173/project/projectA/view/cloud/
+    description '''
+      ## The overview of the cloud system
+  '''
+
+
+    include
+      *,
+      ui.*,
+      next.*,
+      legacy.*
+    exclude
+      supportUser,
+      ui.supportPanel,
+      next -> legacy
+
+    style amazon {
+      color indigo
+    }
+    style customer {
+      color green
+    }
+    style cloud {
+      color sky
+    }
+    style cloud.* {
+      color primary
+    }
+  }
+
+  view view-with-custom-colors {
+    title 'View with custom colors'
+
+    include
+      *,
+      cloud -> * with {
+        color custom
+      }
+
+    style cloud {
+      color custom
+    }
+  }
+}

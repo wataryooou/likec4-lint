@@ -1,0 +1,8 @@
+// this comment appears before any statement in the file
+specification {
+  element el
+}
+model {
+  a = el
+}
+// this trailing comment appears after the last statement, at end of file

@@ -1,0 +1,13 @@
+specification {
+  element el
+}
+model {
+      /* a block comment
+   with ragged internal indentation
+        that does not match the surrounding code
+      */
+  a = el
+  b = el {
+        // this line comment is indented far deeper than its siblings
+  }
+}

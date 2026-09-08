@@ -1,0 +1,35 @@
+
+specification {
+  element el
+  deploymentNode node
+}
+model {
+  el test
+  el test1
+  el test2
+  el test3
+}
+deployment {
+  node prod {
+    instanceOf test
+    instanceOf test1
+    instanceOf test2
+    instanceOf test3
+  }
+}
+views {
+  view index {
+    include      test , test.*
+    include      test1
+    , test2.*, test3
+    include *   ,    * -> *  ,  * ->
+    exclude * ,   * -> *, * ->
+  }
+  deployment   view    prod  {
+    include     test  , test.*
+    include      test1
+    , test2.*, test3
+    include *   ,    * -> *  ,  * ->
+    exclude * ,   * -> *, * ->
+  }
+}

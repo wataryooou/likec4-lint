@@ -1,0 +1,15 @@
+specification {
+  element svc
+  deploymentNode node
+}
+model {
+  target1 = svc
+  target2 = svc
+}
+deployment {
+  env = node {
+    a = instanceOf target1
+    b = instanceOf target2
+  }
+  env.a -> env.b
+}

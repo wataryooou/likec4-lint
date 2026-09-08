@@ -1,0 +1,12 @@
+
+model {
+  extend    sys1.sys2   {
+    #tag1   ,   #tag2
+    link   http://example.com    'extended link'
+    metadata    {
+      prop1    'some'
+      prop2'other'
+      prop3  :    'another'   ;
+    }
+  }
+}

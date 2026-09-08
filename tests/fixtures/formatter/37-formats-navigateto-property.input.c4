@@ -1,0 +1,9 @@
+
+views {
+  view {
+    include
+      * with {
+        navigateTo    viewB
+      }
+  }
+}

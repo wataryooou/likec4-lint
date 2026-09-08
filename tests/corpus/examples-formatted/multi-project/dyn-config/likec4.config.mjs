@@ -1,0 +1,13 @@
+import { defineConfig } from 'likec4/config'
+import generators from './likec4-generators'
+
+export default defineConfig({
+  name: 'dyn-config',
+  title: 'Dynamic Config',
+  generators,
+  styles: {
+    defaults: {
+      opacity: 10,
+    },
+  },
+})

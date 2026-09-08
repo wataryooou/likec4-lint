@@ -1,0 +1,10 @@
+
+deployment{
+node   zone1    {
+instanceOf test
+}
+node   zone2    'zone2'    {
+cluster=node{
+}
+}
+}

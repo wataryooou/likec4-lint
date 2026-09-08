@@ -1,0 +1,7 @@
+specification {
+  element el
+}
+model {
+  a = el 'it\'s here'
+  b = el "say \"hi\""
+}

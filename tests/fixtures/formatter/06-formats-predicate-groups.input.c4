@@ -1,0 +1,10 @@
+
+global{
+predicateGroup    global-predicate-group{
+include    *  ,   some.*
+include *->*
+}
+dynamicPredicateGroup    global-dynamic-predicate-group{
+include    *  ,   some.*
+}
+}

@@ -1,0 +1,16 @@
+
+model {
+  component user1 "escaped double quote \""
+  component user2 "single quoute '"
+  component user3 "escaped single quoute \'"
+  component user4 "single quoute with leading backslash \\'"
+  component user5 "\\'"
+  component user6 "" {
+    description """ ' """
+  }
+}
+views {
+  view index {
+    include *
+  }
+}

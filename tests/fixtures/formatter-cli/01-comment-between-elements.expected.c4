@@ -1,0 +1,8 @@
+specification {
+  element el
+}
+model {
+  a = el 'A'
+  // this comment sits between two sibling elements
+  b = el 'B'
+}

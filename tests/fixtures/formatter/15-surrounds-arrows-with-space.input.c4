@@ -1,0 +1,27 @@
+
+specification {
+  element component
+  relationship http
+  deploymentNode node
+  tag tag1
+}
+model {
+  component system1
+}
+deployment {
+  node zone1 {
+    instance1 = instanceOf system1
+  }
+  node zone2 {
+    node cluster {
+      instance2 = instanceOf system1
+
+      zone2.cluster.instance2   ->     zone1.instance1
+      zone2.cluster.instance2   ->zone1.instance1
+      zone2.cluster.instance2   -[   http   ]->   zone1.instance1
+      zone2.cluster.instance2  .http   zone1.instance1   'title'  'REST'  #tag1
+    }
+  }
+  zone1.instance1    ->zone2.cluster.instance2   {
+  }
+}

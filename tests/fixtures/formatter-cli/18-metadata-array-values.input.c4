@@ -1,0 +1,11 @@
+specification {
+  element el
+}
+model {
+  a = el {
+    metadata {
+      k 'v'
+      k2: ['a','b']
+    }
+  }
+}

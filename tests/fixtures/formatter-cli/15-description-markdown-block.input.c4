@@ -1,0 +1,12 @@
+specification {
+  element el
+}
+model {
+  a = el {
+    description '''
+      # Heading
+        indented markdown line
+      normal line
+    '''
+  }
+}

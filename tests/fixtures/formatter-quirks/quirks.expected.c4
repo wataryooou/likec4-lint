@@ -1,0 +1,40 @@
+specification {
+  element system
+  deploymentNode env
+  tag t1 {
+        color   red
+  }
+  relationship uses
+}
+model {
+  a = system
+  b = system
+  extend a -> b {
+        metadata {
+    k "v"
+  }
+  }
+}
+  deployment {
+  e = env {
+    x = instanceOf a
+  }
+}
+views {
+  deployment view dv {
+    include *
+    style e {
+            color red
+            shape queue
+    }
+  }
+  view v1 {
+    include *
+    style a {
+      color red
+    }
+    rank same {
+          a, b
+    }
+  }
+}

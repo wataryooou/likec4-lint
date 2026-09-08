@@ -1,0 +1,15 @@
+
+specification {
+      // comment
+      // comment2
+      // comment3
+element el
+tag tag1
+}
+model {
+        // comment
+  el sys1 'test' {
+  // comment
+#tag1
+}
+}

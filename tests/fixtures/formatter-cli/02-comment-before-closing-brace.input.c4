@@ -1,0 +1,10 @@
+specification {
+  element el
+  element system
+}
+model {
+  system a {
+    b = el 'B'
+    // trailing comment right before the closing brace
+  }
+}

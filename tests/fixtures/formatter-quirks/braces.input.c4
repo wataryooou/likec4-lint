@@ -1,0 +1,10 @@
+likec4lib {
+      icons {
+            aws:lambda
+      }
+}
+model {a = system}
+model {  b = system  }
+model {
+  c = system{d = system}
+}

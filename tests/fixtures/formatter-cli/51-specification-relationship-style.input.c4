@@ -1,0 +1,8 @@
+specification {
+  relationship uses {
+    line dashed;
+    head normal
+  }
+}
+model {
+}

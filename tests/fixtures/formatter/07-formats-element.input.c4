@@ -1,0 +1,7 @@
+
+model {
+  system    sys1
+  system    sys2   'title'  'description'   'tech'   'tag1, tag2'
+  sys3=   system
+  sys4 = system       'title'  'description'   'tech'   'tag1, tag2'
+}

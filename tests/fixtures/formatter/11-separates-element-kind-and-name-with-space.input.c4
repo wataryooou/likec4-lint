@@ -1,0 +1,7 @@
+
+specification {
+  element el
+}
+model {
+  el     sys1 'test'
+}
