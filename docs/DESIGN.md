@@ -306,7 +306,7 @@ siblings inserted into the innermost CST node that already has content. Whitespa
 not in the Langium CST at all. We reproduce that:
 
 - All trivia (whitespace, newlines, comments) preceding token `T` is emitted as leading
-  siblings **before every node that starts at `T`**, i.e. into the innermost node that
+  siblings before every node that starts at `T`, i.e. into the innermost node that
   has already started and has at least one child.
 - Trivia at the very beginning of the file becomes the first children of `ROOT`.
 - Trivia after the last token becomes the last children of `ROOT`.
@@ -365,7 +365,7 @@ every input that parses without errors. Inputs with syntax errors are returned u
 
 ### Engine (port of Langium `AbstractFormatter`)
 
-1. **Collect.** Walk AST nodes in pre-order (root first, then `descendants`). For each
+1. Collect: walk AST nodes in pre-order (root first, then `descendants`). For each
    node run every rule that applies (rules are listed in the same order as
    `LikeC4Formatter.format`). A rule produces `(target, mode, Formatting)` where
    `target` is a node or token, `mode` is `Prepend` or `Append`.
@@ -375,7 +375,7 @@ every input that parses without errors. Inputs with syntax errors are returned u
    `Move { characters: Option<u32>, lines: Option<u32>, tabs: Option<u32> }`:
    `noSpace`=chars 0, `oneSpace`=chars 1, `newLine`=lines 1, `indent`=lines 1 + tabs 1,
    `noIndent`=tabs 0, custom `{tabs:1}`.
-2. **Apply.** Walk the CST in pre-order over all elements (nodes, tokens, comments),
+2. Apply: walk the CST in pre-order over all elements (nodes, tokens, comments),
    skipping `WHITESPACE`/`NEWLINE` tokens entirely (they are not Langium CST nodes).
    Keep `last_leaf` (the previous token *or comment*) and `indentation: u32`.
    For each element `e`:
@@ -405,11 +405,11 @@ every input that parses without errors. Inputs with syntax errors are returned u
    `tab_size` columns) and the expected one `(indentation + f.tabs.unwrap_or(0)) * tab_size`;
    if they differ, adjust the indentation of every line of the comment (add spaces, or
    remove up to the difference of leading whitespace).
-5. **Overlap resolution.** Edits are produced in traversal order; when a new edit starts
+5. Overlap resolution: edits are produced in traversal order; when a new edit starts
    before the end of the previous edit, drop the previous one (Langium
    `avoidOverlappingEdits`). Edits whose text equals the existing text (after removing
    `\r`) are dropped. Apply the remaining edits to the source.
-6. **Quote normalisation** (`quoteStyle`: `auto` (default) | `single` | `double` | `ignore`)
+6. Quote normalisation (`quoteStyle`: `auto` (default) | `single` | `double` | `ignore`)
    runs after the whitespace pass on the *original* token ranges: collect string tokens
    from the rule list in `LikeC4Formatter.normalizeQuotes`; `auto` picks `double` when
    `count(starts with '"') * 2 >= total` else `single`; replace the fence and escape

@@ -1,0 +1,4 @@
+# Fixtures and corpus files are compared byte for byte; keep LF on every platform.
+* text=auto eol=lf
+*.c4 text eol=lf
+*.rs text eol=lf

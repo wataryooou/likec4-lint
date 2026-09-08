@@ -3,14 +3,14 @@
 Fast linter and formatter for the [LikeC4](https://likec4.dev) architecture-as-code DSL,
 written in Rust in the spirit of [Biome](https://biomejs.dev) and [oxlint](https://oxc.rs).
 
-- **Formatter** — byte-for-byte compatible with the official `likec4 format`
+- Formatter: byte-for-byte compatible with the official `likec4 format`
   (the Langium formatter that also powers VS Code "Format Document"), without Node.js
   or a language-server start-up. Verified against 140+ oracle fixtures generated from
   the official implementation.
-- **Linter** — project-wide rules the official toolchain does not offer: unknown or unused
+- Linter: project-wide rules the official toolchain does not offer: unknown or unused
   kinds/tags, duplicate elements and views, unresolved references, empty bodies, naming
   conventions, required tags, and more. Configurable per rule.
-- **Lossless parser** — a hand-written lexer and recursive-descent parser producing a
+- Lossless parser: a hand-written lexer and recursive-descent parser producing a
   `rowan` syntax tree; every byte of the source is preserved, comments included.
 
 ## Why
