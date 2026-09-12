@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-version:
+    name: Check tag matches workspace version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify tag matches [workspace.package] version
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$cargo_version" != "$tag_version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match [workspace.package] version ${cargo_version} in Cargo.toml"
+            exit 1
+          fi
+          echo "Verified tag ${GITHUB_REF_NAME} matches workspace version ${cargo_version}"
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: check-version
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: ${{ matrix.target }}
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }} -p likec4-lint
+      - name: Package archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          target="${{ matrix.target }}"
+          stage="likec4-lint-${version}-${target}"
+          mkdir -p "$stage"
+          cp "target/${target}/release/likec4-lint" "$stage/"
+          cp LICENSE README.md "$stage/"
+          tar -czf "${stage}.tar.gz" "$stage"
+          if command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "${stage}.tar.gz" > "${stage}.tar.gz.sha256"
+          else
+            sha256sum "${stage}.tar.gz" > "${stage}.tar.gz.sha256"
+          fi
+      - name: Package archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $target = "${{ matrix.target }}"
+          $stage = "likec4-lint-$version-$target"
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          Copy-Item "target/$target/release/likec4-lint.exe" $stage
+          Copy-Item LICENSE $stage
+          Copy-Item README.md $stage
+          Compress-Archive -Path $stage -DestinationPath "$stage.zip"
+          $hash = (Get-FileHash "$stage.zip" -Algorithm SHA256).Hash.ToLower()
+          [IO.File]::WriteAllText("$PWD/$stage.zip.sha256", "$hash  $stage.zip`n")
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: likec4-lint-${{ matrix.target }}
+          path: likec4-lint-*-${{ matrix.target }}.*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" --generate-notes dist/*
+
+  publish:
+    name: Publish crates to crates.io
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      # `cargo publish --workspace` (Cargo >= 1.90) packages and verifies all four crates
+      # together and uploads them in dependency order: syntax -> fmt -> rules -> lint.
+      - name: cargo publish --workspace --dry-run
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        run: cargo publish --workspace --dry-run --locked
+      - name: cargo publish --workspace
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        run: cargo publish --workspace --locked
+      # Fail instead of skipping: a green job cannot be re-run for the same tag, while a failed
+      # one can be re-run with "Re-run failed jobs" once the secret has been added.
+      - name: Fail when the crates.io token is missing
+        if: env.CARGO_REGISTRY_TOKEN == ''
+        run: |
+          echo "::error::CARGO_REGISTRY_TOKEN secret is not set; add it and re-run this job to publish to crates.io."
+          exit 1
