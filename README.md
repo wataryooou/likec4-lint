@@ -9,9 +9,10 @@ This project is not affiliated with or endorsed by the LikeC4 project.
   (the Langium formatter that also powers VS Code "Format Document"), without Node.js
   or a language-server start-up. Verified against 140+ oracle fixtures generated from
   the official implementation.
-- Linter: project-wide rules the official toolchain does not offer: unknown or unused
-  kinds/tags, duplicate elements and views, unresolved references, empty bodies, naming
-  conventions, required tags, and more. Configurable per rule.
+- Linter: 24 project-wide rules, configurable per rule. 10 of them go beyond what
+  `likec4 validate` reports (unused kinds and tags, empty bodies, views without rules,
+  deprecated predicates, naming conventions, required titles and tags); the other 14 cover
+  the same ground as the official validator, so one fast pass also reports the basics.
 - Lossless parser: a hand-written lexer and recursive-descent parser producing a
   `rowan` syntax tree; every byte of the source is preserved, comments included.
 
@@ -21,6 +22,20 @@ LikeC4 ships a TypeScript formatter and a validator (`likec4 format`, `likec4 va
 but no configurable, rule-based linter, and every tool needs the full language server
 (Node.js + Langium + workspace indexing) to run. `likec4-lint` parses, formats and lints a
 project in milliseconds and is a single static binary that fits into pre-commit hooks and CI.
+
+### Use it together with `likec4 validate`
+
+`likec4-lint` complements the official validator, it does not replace it. The official
+validator implements semantic checks this tool does not (for example the parent-child
+relationship check), so a clean `likec4-lint` run does not guarantee that `likec4 validate`
+passes. Keep both: `likec4-lint` as the fast, rule-based gate in pre-commit hooks and CI,
+`likec4 validate` as the source of truth for what the language server accepts. The
+`in likec4 validate` column of the [rule table](#lint-rules) shows which rules overlap.
+
+The parser and formatter track likec4 1.59.3. A weekly workflow
+(`.github/workflows/oracle-drift.yml`) re-runs the formatter oracles and the upstream
+examples against the latest `likec4` release on npm, so an upstream grammar or formatter
+change is caught by CI rather than by users.
 
 ## Install
 
@@ -97,25 +112,28 @@ processed regardless of `exclude`.
 
 `likec4-lint lint --list-rules` prints the current list. Defaults:
 
-| rule | level | what it reports |
-| --- | --- | --- |
-| `syntax-error` | error | parser diagnostics |
-| `unknown-element-kind`, `unknown-deployment-node-kind`, `unknown-relationship-kind`, `unknown-tag`, `unknown-custom-color` | error | used but not declared in any `specification` of the project |
-| `duplicate-element` | error | the same FQN declared twice; elements and the deployment namespace (nodes and instances) are checked separately, so an element and a deployment node may share a name |
-| `duplicate-view`, `duplicate-spec` | error | the same view name, kind, tag, colour, predicate group or global style declared twice |
-| `unresolved-reference` | error | relation endpoint, `extend`, `instanceOf`, `navigateTo`, `view ... of`, `extends`, `global predicate` / `global style` target, or a view rule element (`include` / `exclude` / `style` / `rank`) that does not exist |
-| `invalid-color` | error | bad hex length, rgb component or alpha out of range |
-| `self-relation` | warning | `a -> a` in model or deployment relations, comparing both endpoints after resolving them from the enclosing scope; an endpoint that does not resolve is left to `unresolved-reference` instead |
-| `unused-element-kind`, `unused-tag`, `unused-relationship-kind` | warning | declared but never used, as seen from the declaring project: a use in one of its own documents, or in a document that imports it, counts |
-| `empty-body` | warning | `{ }` with nothing (or only comments) inside, for every brace-owning construct (specification/model/views/deployment/global blocks, element/relation/extend/deployment-node/instance bodies, `style`, `metadata`, `group`, `rank`, predicate/style groups, dynamic-view sub-flows); import lists and `likec4lib` are excluded |
-| `view-without-rules` | warning | a view with no `include` / `exclude` / `global predicate`; dynamic views and views with `extends` are exempt |
-| `deprecated-element-predicate` | warning | `element.kind = x` / `element.tag = #x` expressions |
-| `reserved-name` | warning | element or view named `element`, `model`, `group`, `node`, ... |
-| `multiple-specifications` | warning | more than one `specification` block in a document |
-| `invalid-opacity` | warning | opacity outside 0%..100% |
-| `naming-convention` | off | names must match the configured `pattern` regex; `targets` selects which of `element`, `view`, `deployment-node` are checked (default: `element`, `view`) |
-| `require-title` | off | elements must have a title |
-| `require-tags` | off | elements of the configured `kinds` must carry the configured `tags` |
+| rule | level | in `likec4 validate` | what it reports |
+| --- | --- | --- | --- |
+| `syntax-error` | error | yes | parser diagnostics |
+| `unknown-element-kind`, `unknown-deployment-node-kind`, `unknown-relationship-kind`, `unknown-tag`, `unknown-custom-color` | error | yes | used but not declared in any `specification` of the project |
+| `duplicate-element` | error | yes | the same FQN declared twice; elements and the deployment namespace (nodes and instances) are checked separately, so an element and a deployment node may share a name |
+| `duplicate-view`, `duplicate-spec` | error | yes | the same view name, kind, tag, colour, predicate group or global style declared twice |
+| `unresolved-reference` | error | yes | relation endpoint, `extend`, `instanceOf`, `navigateTo`, `view ... of`, `extends`, `global predicate` / `global style` target, or a view rule element (`include` / `exclude` / `style` / `rank`) that does not exist |
+| `invalid-color` | error | yes | bad hex length, rgb component or alpha out of range |
+| `self-relation` | warning | yes, as an error | `a -> a` in model or deployment relations, comparing both endpoints after resolving them from the enclosing scope; an endpoint that does not resolve is left to `unresolved-reference` instead |
+| `unused-element-kind`, `unused-tag`, `unused-relationship-kind` | warning | no | declared but never used, as seen from the declaring project: a use in one of its own documents, or in a document that imports it, counts |
+| `empty-body` | warning | no | `{ }` with nothing (or only comments) inside, for every brace-owning construct (specification/model/views/deployment/global blocks, element/relation/extend/deployment-node/instance bodies, `style`, `metadata`, `group`, `rank`, predicate/style groups, dynamic-view sub-flows); import lists and `likec4lib` are excluded |
+| `view-without-rules` | warning | no | a view with no `include` / `exclude` / `global predicate`; dynamic views and views with `extends` are exempt |
+| `deprecated-element-predicate` | warning | no | `element.kind = x` / `element.tag = #x` expressions |
+| `reserved-name` | warning | yes, as an error | element or view named `element`, `model`, `group`, `node`, ... |
+| `multiple-specifications` | warning | no | more than one `specification` block in a document |
+| `invalid-opacity` | warning | yes | opacity outside 0%..100% |
+| `naming-convention` | off | no | names must match the configured `pattern` regex; `targets` selects which of `element`, `view`, `deployment-node` are checked (default: `element`, `view`) |
+| `require-title` | off | no | elements must have a title |
+| `require-tags` | off | no | elements of the configured `kinds` must carry the configured `tags` |
+
+The `in likec4 validate` column says whether the official validator reports the same problem,
+possibly under another name or severity.
 
 Rules are project-aware: files are grouped by the nearest `likec4.config.*` / `.likec4rc`
 marker, and linting a single file or subdirectory loads the rest of its project as context.
@@ -195,6 +213,11 @@ MSRV is Rust 1.88 (`rust-version` in `Cargo.toml`).
 
 Regenerating oracle fixtures requires the official CLI: `npm i likec4@1.59.3` and
 `likec4 fmt <dir>`; see `tests/corpus/README.md` and `tests/fixtures/formatter-cli/README.md`.
+
+To check the fixtures and the upstream examples against a newer official CLI without
+regenerating anything, run `LIKEC4=path/to/likec4 scripts/check-oracle-drift.sh`; it exits
+`1` and prints the diffs when the official output has drifted. The same script runs weekly in
+`.github/workflows/oracle-drift.yml` against `likec4@latest`.
 
 ## License
 
