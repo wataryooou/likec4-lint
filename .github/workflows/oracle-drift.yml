@@ -1,0 +1,56 @@
+name: Oracle drift
+
+# Re-checks the formatter oracle fixtures and the upstream examples against the latest official
+# `likec4` CLI on npm. The parser and formatter are hand-written ports, so an upstream grammar or
+# formatter change shows up here first. See scripts/check-oracle-drift.sh.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      likec4_version:
+        description: 'likec4 npm version or dist-tag to check against'
+        default: latest
+        required: false
+  push:
+    paths:
+      - scripts/check-oracle-drift.sh
+      - .github/workflows/oracle-drift.yml
+  pull_request:
+    paths:
+      - scripts/check-oracle-drift.sh
+      - .github/workflows/oracle-drift.yml
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  drift:
+    name: Oracle drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install the official likec4 CLI
+        env:
+          LIKEC4_VERSION: ${{ github.event.inputs.likec4_version || 'latest' }}
+        run: |
+          mkdir -p .oracle
+          cd .oracle
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "likec4@$LIKEC4_VERSION"
+          ./node_modules/.bin/likec4 --version
+      - name: Check fixtures and upstream examples against the official CLI
+        env:
+          LIKEC4: ${{ github.workspace }}/.oracle/node_modules/.bin/likec4
+        run: scripts/check-oracle-drift.sh

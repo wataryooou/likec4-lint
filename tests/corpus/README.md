@@ -10,3 +10,6 @@
   the official `examples/` unchanged. They partition the corpus into 10 projects (plus the
   implicit default project); without them `cloud-system` and `multi-project/projectA`, which
   are identical copies, would be reported as duplicates.
+- To check these oracles (and the fixtures under `../fixtures/`) against a newer official CLI
+  without regenerating them, run `LIKEC4=path/to/likec4 scripts/check-oracle-drift.sh` from the
+  repository root; `.github/workflows/oracle-drift.yml` does the same weekly against `likec4@latest`.
