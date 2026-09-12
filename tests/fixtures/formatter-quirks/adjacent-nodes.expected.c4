@@ -1,0 +1,9 @@
+specification {
+  element system
+}
+model {
+  a = system {
+    title 'x'description 'y'
+  }
+  b = system {}c = system
+}

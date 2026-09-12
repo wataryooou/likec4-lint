@@ -19,10 +19,10 @@ Reference implementation (read-only, used as the behavioural oracle):
 | --- | --- |
 | `likec4-syntax` | lexer, parser, `rowan` syntax tree, typed AST accessors, syntax diagnostics |
 | `likec4-fmt` | formatter (port of Langium `AbstractFormatter` + `LikeC4Formatter` rules) |
-| `likec4-lint` | project model (multi-file), lint rules, configuration |
-| `likec4-cli` | binary `likec4-lint` with `lint`, `format`, `check` subcommands |
+| `likec4-rules` (formerly `likec4-lint`) | project model (multi-file), lint rules, configuration |
+| `likec4-lint` (formerly `likec4-cli`) | binary `likec4-lint` with `lint`, `format`, `check` subcommands |
 
-Dependency direction: `syntax <- fmt`, `syntax <- lint`, `{syntax, fmt, lint} <- cli`.
+Dependency direction: `syntax <- fmt`, `syntax <- rules`, `{syntax, fmt, rules} <- likec4-lint`.
 
 ## Syntax tree
 
@@ -59,7 +59,11 @@ Symbols: `L_CURLY {`, `R_CURLY }`, `L_PAREN (`, `R_PAREN )`, `L_BRACK [`, `R_BRA
 `ARROW ->`, `BACK_ARROW <-`, `BI_ARROW <->`, `ARROW_L_BRACK -[`, `R_BRACK_ARROW ]->`,
 `R_BRACK_BI_ARROW ]<->`.
 
-Literals: `STRING` (`"..."` or `'...'`, backslash escapes, may contain raw newlines),
+Literals: `STRING` (`"..."` or `'...'`, backslash escapes, may contain raw newlines; a
+backslash immediately followed by a line terminator (`\n`, `\r`, U+2028 or U+2029) is not
+an escape and makes the string a lexical error. The token boundary is the same as in
+Langium/Chevrotain; only the error granularity differs: this lexer emits a single `ERROR`
+token that swallows the rest of the line),
 `MARKDOWN_STRING` (`'''...'''` or `"""..."""`), `NUMBER` (`\d+` followed by a non-word char),
 `FLOAT` (`\d+\.\d+`), `PERCENT` (`\d+%`), `HEX` (`[a-fA-F0-9]{3,}` that is not a NUMBER/IDENT,
 only meaningful after `#`), `URI` (`\w+://\S+`, `\.{0,2}/[^/]\S+`, `@[\w-]*/\S+`),
@@ -139,7 +143,7 @@ SPEC_RELATIONSHIP_KIND := RELATIONSHIP_KW IDENT (L_CURLY TAGS? (LINK_PROPERTY | 
 SPEC_STRING_PROPERTY := (TITLE_KW|DESCRIPTION_KW|TECHNOLOGY_KW|NOTATION_KW|SUMMARY_KW) COLON? (STRING|MARKDOWN_STRING) SEMICOLON?
                         (SUMMARY_KW only in element / deploymentNode specs, not in relationship specs)
 RGBA_COLOR           := IDENT("rgb"|"rgba") L_PAREN NUMBER COMMA? NUMBER COMMA? NUMBER COMMA? (FLOAT|NUMBER|PERCENT)? R_PAREN
-HEX_COLOR            := HASH (HEX|NUMBER|IDENT)
+HEX_COLOR            := HASH (HEX|NUMBER|IDENT)      (bare IDENT must be an IdTerminal, i.e. not a reserved keyword)
 TAGS                 := TAG_REF+ (COMMA TAG_REF*)* SEMICOLON?
 TAG_REF              := HASH IDENT
 MODEL                := MODEL_KW L_CURLY (EXTEND_ELEMENT | EXTEND_RELATION | RELATION | ELEMENT | ERROR)* R_CURLY
@@ -173,6 +177,8 @@ METADATA_ARRAY       := L_BRACK (STRING|MARKDOWN_STRING) (COMMA (STRING|MARKDOWN
 RELATION             := FQN_REF? CONNECTOR FQN_REF STRING{0,3} TAGS? RELATION_BODY?
                         (source FQN_REF is required directly inside MODEL / EXTEND_DEPLOYMENT_BODY / DEPLOYMENT)
 CONNECTOR             = RELATION_KIND_DOT_REF | ARROW_L_BRACK IDENT (R_BRACK_ARROW | R_BRACK_BI_ARROW) | BI_ARROW | ARROW
+                        (`ast::Relation::source`/`target` are positional — the FQN_REF before/after the
+                        connector — not semantic; `a <- b` still reports `source() == a`, `target() == b`)
 RELATION_KIND_DOT_REF := DOT IDENT
 RELATION_BODY        := L_CURLY TAGS? (STRING_PROPERTY | NAVIGATE_TO_PROPERTY | STYLE_PROPERTY | LINK_PROPERTY | METADATA_PROPERTY)* R_CURLY
 NAVIGATE_TO_PROPERTY := NAVIGATE_TO_KW VIEW_REF
@@ -338,9 +344,17 @@ Decision points:
   `FQN_EXPR`, then a connector makes it outgoing (+ optional target).
 - `where` binds tighter than `with`; both bodies are optional.
 
+Node depth: `MAX_NODE_DEPTH = 512`, counting `ROOT` as depth 1 and including left-nested
+markers created via `precede()` (`STEP_SERIES`, `WHERE_BINARY`, ...). When a node would push
+the tree past the limit, the parser reports `"nesting too deep (limit 512)"` once and wraps
+the remaining tokens into a single flat `ERROR_NODE` instead of nesting further; later parser
+diagnostics are suppressed for the rest of the file (lexer errors are unaffected).
+
 Error recovery: on an unexpected token inside a block, wrap tokens into an `ERROR` node
 until a token that can start the next statement (a keyword/identifier at the start of
-a line) or the matching `}` and continue. Diagnostics carry byte ranges.
+a line) or the matching `}` and continue. Diagnostics carry byte ranges. A block comment
+that spans multiple lines counts as being at the start of a line for this purpose.
+Diagnostics that would repeat the same `(offset, message)` pair are collapsed into one.
 
 Public API of `likec4-syntax`:
 
@@ -354,8 +368,12 @@ pub mod ast;   // thin typed wrappers used by fmt/lint (Element, Relation, View,
 ```
 
 Tests: unit tests for the lexer; parser tests that (1) parse every `.c4` under
-`tests/corpus/` without errors and assert lossless round trip (`tree.text() == input`),
-(2) snapshot a few trees, (3) check error recovery on broken input.
+`tests/corpus/examples`, `tests/corpus/examples-formatted`, `tests/fixtures/formatter`,
+`tests/fixtures/formatter-cli` and `tests/fixtures/formatter-quirks` (290 files) and assert a
+lossless round trip (`tree.text() == input`) for all but two expected failures — both files of
+the `45-preserves-empty-lines` fixture, whose `metadata` property has no body, a genuine
+Langium syntax error that the upstream formatter spec test applies edits to without checking
+diagnostics — (2) snapshot a few trees, (3) check error recovery on broken input.
 
 ## Formatter (`likec4-fmt`)
 
@@ -404,21 +422,41 @@ every input that parses without errors. Inputs with syntax errors are returned u
    Otherwise compute the existing indentation of the comment's line (tabs count as
    `tab_size` columns) and the expected one `(indentation + f.tabs.unwrap_or(0)) * tab_size`;
    if they differ, adjust the indentation of every line of the comment (add spaces, or
-   remove up to the difference of leading whitespace).
+   remove up to the difference of leading whitespace). Deviation (tab-indent mode only): when
+   reducing a comment's indentation, we remove the shortest whitespace prefix whose measured
+   width already reaches the target width, rather than removing raw characters one at a time.
+   Langium always strips exactly one raw character per unit of excess indentation, so a
+   space-indented comment shrinks by one column per formatting pass instead of reaching the
+   target in one pass — see the known quirk below.
 5. Overlap resolution: edits are produced in traversal order; when a new edit starts
    before the end of the previous edit, drop the previous one (Langium
    `avoidOverlappingEdits`). Edits whose text equals the existing text (after removing
-   `\r`) are dropped. Apply the remaining edits to the source.
+   `\r`) are dropped. Apply the remaining edits to the source. When two edits land on the
+   same empty gap — `key: value` (a metadata attribute or `link:`), `import{a}from`,
+   `try'x'{`, `-[uses]->b` — the official formatter's real traversal
+   applies both, printing `import  { a }  from` on its first pass and only collapsing to one
+   space on a second pass; we let the later edit win outright, so our single pass lands
+   directly on the official formatter's fixed point (its second pass) rather than reproducing
+   its unstable first pass (fixture: `tests/fixtures/formatter-quirks/same-gap-last-wins`).
 6. Quote normalisation (`quoteStyle`: `auto` (default) | `single` | `double` | `ignore`)
    runs after the whitespace pass on the *original* token ranges: collect string tokens
    from the rule list in `LikeC4Formatter.normalizeQuotes`; `auto` picks `double` when
    `count(starts with '"') * 2 >= total` else `single`; replace the fence and escape
    unescaped occurrences of the new quote inside (`escapeQuotesInternalQuotes`). The
    exact set of targeted strings matters: e.g. `Relation.description` and
-   `DeploymentNode.summary` are *not* normalised.
+   `DeploymentNode.summary` are *not* normalised. A markdown string (`'''...'''` /
+   `"""..."""`) is left alone when its content ends with the quote character
+   normalisation would switch to, because escaping it there would still let the fence and
+   content merge into something the official lexer cannot re-tokenise (it would print
+   `"""...\""""`, which does not round-trip); the official formatter emits that broken output,
+   we don't.
 
 Indent string: `tab_size` spaces (default 2) or a tab when `insert_spaces = false`.
 Output uses `\n` only inside edited regions; untouched regions keep their bytes.
+`format()` re-parses its own output before returning it; if the reparsed tree carries any
+diagnostic, `FormatError::Unstable` is returned instead of text — nothing unformattable is
+ever handed back to a caller. `LineIndex` (used for line/column reporting) treats `\n`,
+`\r\n` and a lone `\r` all as line breaks.
 
 ### Rules
 
@@ -428,6 +466,13 @@ instead of `ast.isX` guards and positional children instead of `f.property(...)`
 nested nodes; in our tree a nested node is a different `SyntaxNode`, so select direct
 children only, except for the few Langium data-type composites that we flattened,
 which never contain keywords).
+
+`indentContentInBraces` skips an interior node that overlaps the node before it
+(`utils.areOverlap`, whose range check is inclusive at both ends, so a node that starts
+exactly where the previous one ends counts as overlapping): a statement immediately abutting
+the previous one with no whitespace between them (`title 'x'description 'y'`,
+`b = system {}c = system`) is left on one line rather than pushed to its own
+(`tests/fixtures/formatter-quirks/adjacent-nodes`).
 
 Known quirks to reproduce (they come from the TypeScript source):
 
@@ -439,13 +484,25 @@ Known quirks to reproduce (they come from the TypeScript source):
   direction have no or only partial rules.
 - Single-line braces: interior nodes get `oneSpace` on both sides and the closing brace
   gets `oneSpace({allowLess})`, so `{a}` becomes `{ a}`.
+- A comment indented with tabs where spaces are expected is not idempotent in space mode:
+  Langium measures the existing indentation in columns (a tab counts as `tab_size`) but
+  removes one raw character per column of excess, so the first pass strips both tabs and
+  leaves the comment at column 0, and only the second pass indents it correctly with spaces
+  (`tests/fixtures/formatter-quirks/comment-tab-indent-non-idempotent`; this is the same
+  first-pass behaviour as the official formatter, reproduced on purpose — it only affects
+  space indentation, `--use-tabs` mode removes whole indentation units and is a fixed point).
+- A file with a UTF-8 BOM fails to lex (same as the official formatter) and is returned
+  unchanged rather than formatted.
 
-## Linter (`likec4-lint`)
+## Linter (`likec4-rules`)
 
-Project discovery: a directory tree; `likec4.config.{json,mjs,js,ts}` or
-`.likec4rc` marks a project root (only JSON is parsed for `exclude`), files under
-`node_modules` are skipped, `*.c4`, `*.likec4`, `*.like-c4` are documents. All documents
-of a project are parsed and a `ProjectModel` is built:
+Project discovery: a directory tree; any of `.likec4rc`, `.likec4.config.json`,
+`likec4.config.json`, `likec4.config.js`, `likec4.config.cjs`, `likec4.config.mjs`,
+`likec4.config.ts`, `likec4.config.cts` or `likec4.config.mts` marks a project root
+(`PROJECT_CONFIG_FILENAMES` in `crates/likec4-rules/src/lib.rs`; only the file's presence is
+checked, its content is never read), files under `node_modules` are skipped, `*.c4`,
+`*.likec4`, `*.like-c4` (case-insensitive) are documents. All documents of a project are
+parsed and a `ProjectModel` is built:
 
 - specification kinds (element, deploymentNode, relationship), tags, custom colours,
   global predicate groups / styles (with declaration sites),
@@ -463,31 +520,32 @@ Rules (id, severity, description):
 | `unknown-relationship-kind` | error | `-[kind]->` / `.kind` not declared |
 | `unknown-tag` | error | `#tag` not declared |
 | `unknown-custom-color` | error | `color foo` that is neither a theme colour nor a declared custom colour |
-| `duplicate-element` | error | same FQN declared twice |
+| `duplicate-element` | error | the same FQN declared twice; model elements and the deployment namespace (deployment nodes and deployed instances) are checked separately, so an element and a deployment node may share a name |
 | `duplicate-view` | error | same view name declared twice |
-| `duplicate-spec` | error | same kind/tag/colour declared twice in specifications |
-| `unresolved-reference` | error | relation endpoint / `extend` target / `instanceOf` target / `navigateTo` / `of` / `extends` / `global predicate` / `global style` whose name is unknown (conservative: the last FQN segment must exist somewhere; `this` / `it` resolve to the enclosing element) |
-| `self-relation` | warning | `a -> a` in model or deployment relations (dynamic view steps are exempt: `a -> a` is a valid self-message) |
-| `unused-element-kind` | warning | declared kind never used anywhere in the workspace |
-| `unused-tag` | warning | declared tag never used |
-| `unused-relationship-kind` | warning | declared relationship kind never used |
-| `empty-body` | warning | `{ }` with nothing inside |
-| `view-without-rules` | warning | view whose body has no include/exclude/global predicate |
+| `duplicate-spec` | error | same kind, tag or colour declared twice across the `specification` blocks of a project, or the same predicate group or style name declared twice across its `global` blocks |
+| `unresolved-reference` | error | relation endpoint / `extend` target / `instanceOf` target / `navigateTo` / view `of` / `extends`, or a view rule element (`include` / `exclude` expressions, `style` targets, `rank`), `global predicate` or `global style` reference whose name is unknown (conservative: the last FQN segment must exist somewhere; `this` / `it` resolve to the enclosing element) |
+| `self-relation` | warning | a relation whose source and target resolve to the same element, comparing both endpoints via the model's scoping rules from the enclosing element (a name resolves to a child of the enclosing element first, then an ancestor's child, then a root element; `this` / `it` and an omitted source are the enclosing element itself); an endpoint that does not resolve in the project is skipped (`unresolved-reference` covers it), and dynamic view steps are exempt (`a -> a` is a valid self-message) |
+| `unused-element-kind` | warning | declared kind never used, as seen from the declaring project: a use in one of its own documents or in an importing document counts |
+| `unused-tag` | warning | declared tag never used (same visibility as `unused-element-kind`) |
+| `unused-relationship-kind` | warning | declared relationship kind never used (same visibility as `unused-element-kind`) |
+| `empty-body` | warning | `{ }` with nothing but whitespace or comments inside, checked for every brace-owning node kind (top-level blocks, specification kind/tag bodies, element/relation/extend/deployment-node/instance bodies, view bodies, `style`/`metadata`/`with` blocks, view rule `group`/`rank`, global predicate/style groups, dynamic-view sub-flows); deliberately skipped: `import { ... }` (a list, not a body), `likec4lib` and `ERROR_NODE` |
+| `view-without-rules` | warning | an element or deployment view with no `include`/`exclude` or global predicate rule; a view with `extends` and any dynamic view are exempt |
 | `deprecated-element-predicate` | warning | `element.kind` / `element.tag` expressions (grammar marks them as backwards compatibility) |
 | `reserved-name` | warning | element / view / deployment node / instance named `element`, `model`, `group`, `node`, `deployment`, `instance`, `relationship` |
 | `multiple-specifications` | warning | more than one `specification` block in a document |
 | `invalid-color` | error | bad hex length / rgb range / alpha range |
 | `invalid-opacity` | warning | opacity outside 0..100% |
-| `naming-convention` | off | element names must match a configured regex |
-| `require-title` | off | elements must have a title |
-| `require-tags` | off | elements of configured kinds must carry configured tags |
+| `naming-convention` | off | element/view names must match the configured `pattern` regex (default `^[a-z][a-zA-Z0-9]*$`); `targets` selects which of `element`, `view`, `deployment-node` are checked (default `["element", "view"]`); the diagnostic message names only the offending value, the expected pattern is in `help` |
+| `require-title` | off | elements must have a title (inline string or `title` property) |
+| `require-tags` | off | elements of the configured `kinds` must carry the configured `tags` (tags added through `extend` count); `kinds` empty or missing means every kind |
 
 Configuration file `likec4-lint.toml` (searched upwards from cwd):
 
 ```toml
 [format]
 quote_style = "auto"   # auto | single | double | ignore
-indent_width = 2
+indent_width = 2       # 1..=16
+use_tabs = false
 
 [lint]
 exclude = ["**/generated/**"]
@@ -498,17 +556,116 @@ naming-convention = { level = "warning", pattern = "^[a-z][a-zA-Z0-9]*$" }
 require-tags = { level = "error", kinds = ["system"], tags = ["owner"] }
 ```
 
-Diagnostics: `{ rule, severity, message, file, range, help }` rendered with
-`annotate-snippets` (pretty) or as JSON (`--format json`). Exit code 1 when any error.
+Both `[format]` and `ConfigFile` reject unknown keys/sections (`deny_unknown_fields`); an
+unrecognised `[format]` / `[lint]` key or section is a configuration error (exit `2`), as is a `level`
+that is not one of `off`/`info`/`warning`/`error` (`"unknown level 'warn' (expected one of:
+off, info, warning, error)"`) or an `indent_width` outside `1..=16`. Two rule-configuration
+problems are reported as diagnostics rather than failing the run: an id under `[lint.rules]`
+that is not a known rule (`unknown-rule`) and an option a rule does not declare
+(`unknown-rule-option`); both are `warning`, carry no `file`, and are always emitted even when
+there are no other findings. An option of the wrong type (for example a number where
+`naming-convention`'s `pattern` wants a string) is reported under the rule's own id and the
+rule falls back to that option's default.
+
+Diagnostics: `{ rule, severity, message, file, range, help, related }`, where `related` is an
+optional second location (`{ file, range, message }`, used by the `duplicate-*` rules to point
+at the first declaration). Rendered with `annotate-snippets` (pretty) or as JSON (`--format
+json`):
+
+```jsonc
+{
+  "version": 1,
+  "diagnostics": [
+    {
+      "rule": "...", "severity": "error" | "warning" | "info", "message": "...",
+      "file": "cwd-relative path, absolute if outside cwd" | null,  // null for a config diagnostic
+      "range": { "start": 0, "end": 0 },      // byte offsets
+      "line": 1, "column": 1,                 // 1-based; column counts characters
+      "help": "..." | null,
+      "related": { "file": "...", "range": { "start": 0, "end": 0 }, "line": 1, "column": 1, "message": "..." } | null
+    }
+  ],
+  "summary": { "errors": 0, "warnings": 0, "infos": 0, "files": 0, "config": "relative path" | null }
+}
+```
+
+The JSON envelope is emitted for `lint`, `check`, `format --check` and `format --write` even
+when there are zero diagnostics; a bare `format <file>` without `--check`/`--write` prints the
+formatted text on success and only switches to JSON when there is something to report. Exit
+codes: `0` no error diagnostic (a warning-only run is `0`), `1` at least one error diagnostic
+(`needs-formatting`, `format-error` and `io-error` are errors for this purpose — `format
+--write` writing files does not itself affect the exit code), `2` a usage, configuration or
+I/O error.
 
 ## CLI
 
 ```
-likec4-lint lint [PATHS...] [--format pretty|json] [--config FILE]
-likec4-lint format [PATHS...] [--check] [--write] [--stdin] [--quote-style auto|single|double|ignore]
-likec4-lint check [PATHS...]          # lint + format --check
+likec4-lint lint [PATHS...] [--format pretty|json] [--json] [--color auto|always|never] [--quiet] [--list-rules] [--config FILE]
+likec4-lint format [PATHS...] [--check] [--write] [--stdin] [--stdin-filepath PATH] [--diff]
+                    [--quote-style auto|single|double|ignore] [--indent-width N] [--use-tabs]
+                    [--format pretty|json] [--json] [--color auto|always|never] [--quiet] [--config FILE]
+likec4-lint check [PATHS...]          # lint + format --check, same shared flags as lint
 ```
 
-Files are discovered with the `ignore` crate (respects `.gitignore`), processed in
-parallel with `rayon`. `format` without `--write`/`--check` prints the formatted text
-of a single file or a summary for many.
+Files are discovered with the `ignore` crate (respects `.gitignore` even outside a git
+repository, and the ancestor `.gitignore`s / global excludes above a non-repository path;
+`node_modules` and hidden directories are skipped); files are read in parallel with `rayon`
+(parsing and rule evaluation run on the collected set, not per-file in the walk). `format`
+without `--write`/`--check` prints the formatted text of exactly one file to stdout; zero
+matching files is a usage error (`no LikeC4 documents found under <paths>`) and more than one
+is also a usage error (`pass --write or --check`) — both exit `2`.
+
+`[lint] exclude` globs (resolved against the config file's directory) only suppress
+reporting for `lint`/`check`: an excluded document is still parsed and contributes to the
+`ProjectModel` (so other documents can still reference it), it is just not itself walked for
+diagnostics. `format` neither reads nor writes an excluded document. A path named explicitly
+on the command line is always processed, excluded or not.
+
+Project context for a request path follows the same discovery as the linter (marker files
+above the path), with a fallback order when no marker is found: (1) the adopted config file's
+directory, but only when the request path is under it; (2) a directory argument is its own
+root; (3) a file argument's root is the nearest ancestor containing `.git`, else the current
+directory (if the file is under it), else the file's parent directory. A marker found strictly
+below the chosen root starts a separate project. Because a `.git`-rooted fallback walks the
+whole repository, linting one file in a large monorepo with no project markers can walk far
+more than that file — fast, thanks to the `ignore` crate, but worth knowing.
+
+Config search stops at the first directory containing `.git` (file or directory) or at
+`$HOME`, whichever comes first; project-marker search upwards uses the same boundary. The home directory itself is never a project root or a context origin, even when it holds a config file, a marker or `.git`.
+
+`--write` replaces a file atomically: write to a new file in the same directory, then rename
+over the original; a symlink target has its real file rewritten while the link itself is
+preserved, and permissions are copied to the new file. A write failure is reported as an
+`io-error` diagnostic and the run continues, exiting `1` at the end rather than aborting.
+
+`--stdin` reads one document from stdin, named `<stdin>` in messages unless
+`--stdin-filepath PATH` overrides it, and is mutually exclusive with `--write` and with
+`PATHS`; `--check` and `--write` are mutually exclusive; `--json` is mutually exclusive with
+`--format`. Without `--check`, `--stdin` prints the formatted result to stdout. With
+`--check`: nothing is printed to stdout; formatted-but-different input prints `needs
+formatting <name>` to stderr and exits `1`; a syntax error prints `error: <msg>
+(<name>:line:col)` to stderr and exits `1`; an unstable-formatting result prints `error:
+<Display> (<name>)` to stderr and exits `1`.
+
+`--quiet` suppresses the per-file status line and the final summary line; diagnostics, a bare
+`format`'s printed text, and `--diff` output are unaffected. `--diff` (pretty output only)
+shows a unified diff for files that need formatting, used with `format --check`.
+
+The summary line reads `N error(s), M warning(s), K info(s) in F file(s)`, with ` (config:
+<relative path>)` appended when a config file was picked up.
+
+Pretty rendering (`annotate-snippets`): only the two lines before and after the diagnostic
+span are sliced out of the file; a line longer than 1024 bytes is windowed to 80 bytes on each
+side of the span plus `...`; `related` renders as a second snippet ("first declared here" for
+the `duplicate-*` rules); control characters in file names and in `--diff` bodies are escaped
+as `\u{XX}`.
+
+A document reachable under more than one name (for example through a symlink) is processed
+once, under the first name seen. Document extensions (`.c4`, `.likec4`, `.like-c4`) are
+matched case-insensitively. Deep nesting (past `MAX_NODE_DEPTH = 512`) is a `syntax-error`
+("nesting too deep (limit 512)"), not a crash.
+
+MSRV is Rust 1.88 (`rust-version` in the workspace `Cargo.toml`). Crates: `likec4-syntax`,
+`likec4-fmt`, `likec4-rules` (formerly the `likec4-lint` library crate), and `likec4-lint`
+(the CLI, formerly `likec4-cli`, directory `crates/likec4-lint`) — installed with `cargo
+install --path crates/likec4-lint`.

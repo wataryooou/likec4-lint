@@ -934,7 +934,195 @@ fn missing_closing_brace_reports_error_without_panic() {
     let parse = parse("model {\n  a = system {\n    b = system\n");
     assert!(!parse.ok());
     assert!(parse.errors().iter().all(|e| e.message == "expected '}'"));
-    assert_eq!(parse.errors().len(), 2);
+    // Both unclosed blocks want a `}` at EOF; the identical diagnostic is reported once.
+    assert_eq!(parse.errors().len(), 1);
+}
+
+#[test]
+fn identical_diagnostics_at_the_same_offset_are_reported_once() {
+    // Three unclosed blocks, one message at EOF.
+    let parsed = parse("model {\n  a = system {\n    b = system {\n");
+    assert_eq!(parsed.errors().len(), 1, "{:?}", parsed.errors());
+    // Different messages at the same offset are both kept.
+    let parsed = parse("model { a = system { style { shape\nfoo } } }");
+    let at_foo: Vec<&str> = parsed
+        .errors()
+        .iter()
+        .filter(|e| u32::from(e.range.start()) == 35)
+        .map(|e| e.message.as_str())
+        .collect();
+    assert_eq!(at_foo.len(), 2, "{:?}", parsed.errors());
+    assert_ne!(at_foo[0], at_foo[1]);
+}
+
+#[test]
+fn multiline_block_comment_counts_as_a_line_break_for_recovery() {
+    // The block comment ends the erroneous statement: `c = system` starts a new line
+    // (inside the comment) and must not be swallowed by the ERROR_NODE.
+    let text = "model {\n  a = system {\n    b = system\n    title 'x' /* c\n    */ c = system\n  }\n}\n";
+    let (shape, errors) = err_shape(text);
+    assert_eq!(errors, ["'title' is not allowed here"]);
+    assert!(
+        shape.contains(
+            "        ERROR_NODE\n          IDENT \"title\"\n          STRING \"'x'\"\n        ELEMENT\n          IDENT \"c\"\n"
+        ),
+        "{shape}"
+    );
+    // A single-line block comment is not a line break.
+    let (shape, _) =
+        err_shape("model {\n  a = system {\n    b = system\n    title 'x' /* c */ c = system\n  }\n}\n");
+    assert!(shape.contains("STRING \"'x'\"\n          IDENT \"c\"\n"), "{shape}");
+}
+
+#[test]
+fn extend_relation_requires_a_source() {
+    // Langium: `ExtendRelation: 'extend' source=FqnRef RelationConnector target=FqnRef ...`.
+    let (shape, errors) = err_shape("model {\n  extend -> ghost { }\n}\n");
+    assert_eq!(errors, ["expected identifier"]);
+    assert!(shape.contains("    EXTEND_RELATION\n      EXTEND_KW \"extend\"\n      ARROW \"->\"\n      FQN_REF\n        IDENT \"ghost\"\n"), "{shape}");
+    ok_shape("model {\n  extend a -> ghost { }\n}\n");
+}
+
+/// Depth of the deepest node (`ROOT` has depth 1), computed without recursion.
+fn max_depth(node: &SyntaxNode) -> usize {
+    let mut depth = 0usize;
+    let mut max = 0usize;
+    for event in node.preorder() {
+        match event {
+            WalkEvent::Enter(_) => {
+                depth += 1;
+                max = max.max(depth);
+            }
+            WalkEvent::Leave(_) => depth -= 1,
+        }
+    }
+    max
+}
+
+/// Deeply nested input must not overflow the stack: the parser caps the tree depth, reports
+/// it once and puts the rest of the input into one flat `ERROR_NODE`. The parse (and the
+/// drop of the tree) runs on a 256 KiB stack, in debug builds too.
+#[test]
+fn deep_nesting_is_capped_on_a_small_stack() {
+    const N: usize = 100_000;
+    let mut elements = String::from("model {\n");
+    for _ in 0..N {
+        elements.push_str("a = system {\n");
+    }
+    for _ in 0..N {
+        elements.push_str("}\n");
+    }
+    elements.push_str("}\n");
+    let mut steps = String::from("views {\n  dynamic view d {\n    a");
+    for _ in 0..N {
+        steps.push_str(" -> b");
+    }
+    steps.push_str("\n  }\n}\n");
+    for input in [elements, steps] {
+        parse_capped_on_stack(input, 256 * 1024);
+    }
+
+    // `where` parentheses are the most expensive nesting (three recursive calls per level,
+    // about 550 bytes per level in debug builds), so 512 levels need a little more than
+    // 256 KiB in debug builds; 1 MiB is still half of a rayon worker stack.
+    let mut parens = String::from("views { view { include * where ");
+    parens.push_str(&"(".repeat(N));
+    parens.push_str("kind = k");
+    parens.push_str(&")".repeat(N));
+    parens.push_str(" } }");
+    parse_capped_on_stack(parens, 1024 * 1024);
+}
+
+/// Parse `input` on a thread with `stack_size` bytes of stack and check the depth cap.
+fn parse_capped_on_stack(input: String, stack_size: usize) {
+    use crate::MAX_NODE_DEPTH;
+    let worker = std::thread::Builder::new()
+        .stack_size(stack_size)
+        .spawn(move || {
+            let parsed = parse(&input);
+            let messages: Vec<&str> = parsed.errors().iter().map(|e| e.message.as_str()).collect();
+            assert_eq!(messages, [format!("nesting too deep (limit {MAX_NODE_DEPTH})")]);
+            let tree = parsed.syntax();
+            assert_eq!(tree.text().to_string(), input);
+            assert!(max_depth(&tree) <= MAX_NODE_DEPTH, "depth {}", max_depth(&tree));
+            let error_nodes = tree.descendants().filter(|n| n.kind() == ERROR_NODE).count();
+            assert_eq!(error_nodes, 1);
+            drop(tree);
+            drop(parsed);
+        })
+        .expect("spawn parser thread");
+    worker.join().expect("parser thread panicked");
+}
+
+/// The limit is exact: `MAX_NODE_DEPTH` counts nodes from `ROOT` (depth 1) and the flat
+/// `ERROR_NODE` is the only node allowed at the last level.
+#[test]
+fn nesting_limit_is_exact() {
+    use crate::MAX_NODE_DEPTH;
+    // ROOT, VIEWS, ELEMENT_VIEW, ELEMENT_VIEW_BODY, VIEW_RULE_PREDICATE, EXPRESSIONS,
+    // FQN_EXPR_WHERE, WHERE_PAREN * n, WHERE_KIND: the deepest regular node is at depth n + 8.
+    let where_parens = |n: usize| {
+        format!("views {{ view {{ include * where {}kind = k{} }} }}", "(".repeat(n), ")".repeat(n))
+    };
+    let deepest_ok = MAX_NODE_DEPTH - 9;
+    let tree = parse(&where_parens(deepest_ok));
+    assert!(tree.ok(), "{:?}", tree.errors());
+    assert_eq!(max_depth(&tree.syntax()), MAX_NODE_DEPTH - 1);
+
+    let (_, errors) = err_shape(&where_parens(deepest_ok + 1));
+    assert_eq!(errors, [format!("nesting too deep (limit {MAX_NODE_DEPTH})")]);
+    let tree = parse(&where_parens(deepest_ok + 1)).syntax();
+    assert_eq!(max_depth(&tree), MAX_NODE_DEPTH);
+    // `kind = k`, all closing parens and braces end up in one flat error node.
+    let error_nodes: Vec<SyntaxNode> = tree.descendants().filter(|n| n.kind() == ERROR_NODE).collect();
+    assert_eq!(error_nodes.len(), 1);
+    assert!(error_nodes[0].children().next().is_none(), "flat error node");
+    assert_eq!(error_nodes[0].ancestors().count(), MAX_NODE_DEPTH);
+    assert!(error_nodes[0].text().to_string().starts_with("kind = k"));
+    assert!(error_nodes[0].text().to_string().ends_with(" } }"));
+}
+
+#[test]
+fn describe_uses_human_readable_names() {
+    use super::describe;
+    for (kind, expected) in [
+        (HEX, "hex literal"),
+        (STRING, "string"),
+        (MARKDOWN_STRING, "markdown string"),
+        (NUMBER, "number"),
+        (FLOAT, "decimal number"),
+        (PERCENT, "percentage"),
+        (BOOLEAN, "boolean"),
+        (IDENT, "identifier"),
+        (URI, "uri"),
+        (LIB_ICON, "library icon"),
+        (ERROR, "invalid token"),
+        (L_CURLY, "'{'"),
+        (R_BRACK_BI_ARROW, "']<->'"),
+        (DOT_UNDERSCORE, "'._'"),
+        (DOT_WILDCARD, "'.*'"),
+        (BLOCK_COMMENT, "block comment"),
+        (MODEL_KW, "'model'"),
+        (AUTO_LAYOUT_KW, "'autoLayout'"),
+        (ELEMENT_BODY, "element body"),
+        (ERROR_NODE, "error node"),
+        (__LAST, "end of file"),
+    ] {
+        assert_eq!(describe(kind), expected, "{kind:?}");
+    }
+    // Every kind has a description that is not the raw enum name.
+    for raw in 0..(__LAST as u16) {
+        let kind = SyntaxKind::from(rowan::SyntaxKind(raw));
+        let description = describe(kind);
+        if description.starts_with('\'') {
+            assert!(description.ends_with('\''), "{kind:?}: {description}");
+        } else {
+            assert!(
+                !description.contains('_') && description == description.to_lowercase(),
+                "{kind:?}: {description}"
+            );
+        }
+    }
 }
 
 #[test]

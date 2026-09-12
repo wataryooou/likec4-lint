@@ -8,6 +8,8 @@ pub(crate) mod grammar;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
+
 use rowan::{GreenNode, GreenNodeBuilder};
 use text_size::{TextRange, TextSize};
 
@@ -42,6 +44,10 @@ pub(crate) fn parse_text(text: &str) -> (GreenNode, Vec<SyntaxError>) {
     let Parser { tokens, events, mut errors, .. } = parser;
     errors.extend(lexed.errors.iter().map(|e| SyntaxError { message: e.message.clone(), range: e.range }));
     errors.sort_by_key(|e| (e.range.start(), e.range.end()));
+    // Several rules can report the same problem at the same offset (every unclosed block
+    // wants a `}` at EOF, for example); keep the first occurrence of each (offset, message).
+    let mut seen = HashSet::new();
+    errors.retain(|e| seen.insert((e.range.start(), e.message.clone())));
     let green = build_tree(text, &tokens, events);
     (green, errors)
 }
@@ -49,6 +55,26 @@ pub(crate) fn parse_text(text: &str) -> (GreenNode, Vec<SyntaxError>) {
 /// Maximum number of lookahead / bump operations without progress before we bail out
 /// of a loop. Protects against accidental infinite loops in grammar code.
 const STEP_LIMIT: u32 = 10_000_000;
+
+/// Maximum depth of the syntax tree, counting nodes from `ROOT` (depth 1).
+///
+/// The parser is recursive descent, so every level of nesting costs stack: measured in
+/// debug builds, about 450 bytes per tree level for element bodies and about 550 bytes for
+/// `where` parentheses (the most expensive rule); a 2 MiB rayon worker overflows at a few
+/// thousand levels and the 8 MiB main thread at a few thousand more. Dropping a rowan
+/// green tree recurses over the tree depth as well. Real documents nest a few dozen
+/// levels at most, so 512 is far above any legitimate input while keeping the parser
+/// below roughly 300 KiB of stack in debug builds (much less in release builds).
+/// Left-nested chains built with `precede()` (`a -> b -> c ...`, `x and y and z ...`)
+/// count towards the depth exactly like block nesting.
+///
+/// When the limit is reached the parser reports "nesting too deep" once, wraps the rest
+/// of the input into a single flat `ERROR_NODE` (at most at depth `MAX_NODE_DEPTH`) and
+/// reports nothing else; the tree still contains every byte of the source.
+pub const MAX_NODE_DEPTH: usize = 512;
+
+/// `Marker::pos` of a marker refused by the depth limit: completing it creates no node.
+const DEAD_MARKER: u32 = u32::MAX;
 
 pub(crate) struct Parser<'t> {
     text: &'t str,
@@ -60,6 +86,12 @@ pub(crate) struct Parser<'t> {
     events: Vec<Event>,
     errors: Vec<SyntaxError>,
     steps: u32,
+    /// One entry per open node (its depth is the index + 1): the greatest height of the
+    /// child nodes completed inside it so far. Used to enforce [`MAX_NODE_DEPTH`].
+    open: Vec<u16>,
+    /// Set once the depth limit was hit; the rest of the input is then a flat `ERROR_NODE`
+    /// and further diagnostics are dropped.
+    too_deep: bool,
 }
 
 #[must_use = "a marker must be completed or abandoned"]
@@ -73,6 +105,8 @@ pub(crate) struct CompletedMarker {
     start_pos: u32,
     #[allow(dead_code)] // read through `kind()`, kept for grammar helpers
     kind: SyntaxKind,
+    /// Number of node levels in this subtree (a node without child nodes has height 1).
+    height: u16,
 }
 
 impl<'t> Parser<'t> {
@@ -88,7 +122,17 @@ impl<'t> Parser<'t> {
                 non_trivia.push(i as u32);
             }
         }
-        Parser { text, tokens, non_trivia, pos: 0, events: Vec::new(), errors: Vec::new(), steps: 0 }
+        Parser {
+            text,
+            tokens,
+            non_trivia,
+            pos: 0,
+            events: Vec::new(),
+            errors: Vec::new(),
+            steps: 0,
+            open: Vec::new(),
+            too_deep: false,
+        }
     }
 
     // ----- lookahead -----
@@ -150,7 +194,8 @@ impl<'t> Parser<'t> {
         self.at(IDENT) && crate::kind::is_valid_id_terminal(self.current_text())
     }
 
-    /// True when a newline (or the start of the file) precedes the current token.
+    /// True when a line break (or the start of the file) precedes the current token.
+    /// A block comment spanning several lines counts as a line break.
     pub(crate) fn at_line_start(&self) -> bool {
         let Some(&idx) = self.non_trivia.get(self.pos) else { return true };
         let prev = self.non_trivia.get(self.pos.wrapping_sub(1)).copied();
@@ -158,7 +203,9 @@ impl<'t> Parser<'t> {
             Some(p) if self.pos > 0 => p as usize + 1,
             _ => 0,
         };
-        self.tokens[from..idx as usize].iter().any(|t| t.kind == NEWLINE)
+        self.tokens[from..idx as usize].iter().any(|t| {
+            t.kind == NEWLINE || (t.kind == BLOCK_COMMENT && self.text[t.range].contains(['\n', '\r']))
+        })
     }
 
     /// Range of the current token (empty range at EOF).
@@ -185,6 +232,12 @@ impl<'t> Parser<'t> {
     // ----- consuming -----
 
     fn do_bump(&mut self, kind: SyntaxKind) {
+        if self.too_deep {
+            // The depth bail-out already consumed everything; rules that checked the token
+            // before calling `start()` may still try to bump it.
+            debug_assert!(self.at_eof());
+            return;
+        }
         assert!(!self.at_eof(), "bump at EOF");
         self.events.push(Event::Token { kind });
         self.pos += 1;
@@ -197,8 +250,11 @@ impl<'t> Parser<'t> {
         self.do_bump(kind);
     }
 
-    /// Consume the current token, asserting its kind.
+    /// Consume the current token, asserting its kind (a no-op after the depth bail-out).
     pub(crate) fn bump(&mut self, kind: SyntaxKind) {
+        if self.too_deep {
+            return;
+        }
         assert!(self.at(kind), "expected {kind:?}, found {:?} ({:?})", self.current(), self.current_text());
         self.do_bump(kind);
     }
@@ -209,8 +265,12 @@ impl<'t> Parser<'t> {
         self.do_bump(kind);
     }
 
-    /// Consume the current identifier as the keyword `kw`, asserting it matches.
+    /// Consume the current identifier as the keyword `kw`, asserting it matches (a no-op
+    /// after the depth bail-out).
     pub(crate) fn bump_kw(&mut self, kw: &str) {
+        if self.too_deep {
+            return;
+        }
         assert!(self.at_kw(kw), "expected keyword {kw:?}, found {:?}", self.current_text());
         let kind = SyntaxKind::from_keyword(kw).unwrap_or_else(|| panic!("{kw} is not a keyword kind"));
         self.do_bump(kind);
@@ -294,6 +354,9 @@ impl<'t> Parser<'t> {
     }
 
     pub(crate) fn error_at(&mut self, range: TextRange, message: impl Into<String>) {
+        if self.too_deep {
+            return;
+        }
         self.errors.push(SyntaxError { message: message.into(), range });
     }
 
@@ -319,26 +382,77 @@ impl<'t> Parser<'t> {
 
     // ----- markers -----
 
+    /// Start a node at the current position. Returns a dead marker (completing it creates
+    /// no node) when the node would exceed [`MAX_NODE_DEPTH`]; see [`Parser::bail_out`].
     pub(crate) fn start(&mut self) -> Marker {
+        self.start_with_height(0)
+    }
+
+    /// Start a node that will already contain a subtree of `height` levels (`precede`).
+    fn start_with_height(&mut self, height: u16) -> Marker {
+        // The new node sits at depth `open.len() + 1` and its deepest descendant at
+        // `open.len() + 1 + height`; keep that below the limit so that the flat
+        // `ERROR_NODE` of a later bail-out (one level deeper) still fits.
+        if self.open.len() + 1 + height as usize >= MAX_NODE_DEPTH {
+            self.bail_out();
+            return Marker { pos: DEAD_MARKER, completed: false };
+        }
+        self.open.push(height);
         let pos = self.events.len() as u32;
         self.events.push(Event::Start { kind: None, forward_parent: None });
         Marker { pos, completed: false }
+    }
+
+    /// Depth limit reached: report it once and wrap the rest of the input into one flat
+    /// `ERROR_NODE`. Every rule then sees EOF, so the recursion unwinds without descending
+    /// further; the "expected ..." errors of the unwinding rules are dropped as noise.
+    fn bail_out(&mut self) {
+        if self.too_deep {
+            return;
+        }
+        self.error(format!("nesting too deep (limit {MAX_NODE_DEPTH})"));
+        if !self.at_eof() {
+            self.events.push(Event::Start { kind: Some(ERROR_NODE), forward_parent: None });
+            while !self.at_eof() {
+                self.bump_any();
+            }
+            self.events.push(Event::Finish);
+        }
+        self.too_deep = true;
+    }
+
+    /// Record that a child node of `height` levels was completed inside the innermost open node.
+    fn note_child_height(&mut self, height: u16) {
+        if let Some(top) = self.open.last_mut() {
+            *top = (*top).max(height);
+        }
     }
 }
 
 impl Marker {
     pub(crate) fn complete(mut self, p: &mut Parser<'_>, kind: SyntaxKind) -> CompletedMarker {
         self.completed = true;
+        if self.pos == DEAD_MARKER {
+            return CompletedMarker { start_pos: DEAD_MARKER, kind, height: 0 };
+        }
         match &mut p.events[self.pos as usize] {
             Event::Start { kind: slot, .. } => *slot = Some(kind),
             _ => unreachable!(),
         }
         p.events.push(Event::Finish);
-        CompletedMarker { start_pos: self.pos, kind }
+        let height = p.open.pop().expect("completed marker has an open entry") + 1;
+        p.note_child_height(height);
+        CompletedMarker { start_pos: self.pos, kind, height }
     }
 
     pub(crate) fn abandon(mut self, p: &mut Parser<'_>) {
         self.completed = true;
+        if self.pos == DEAD_MARKER {
+            return;
+        }
+        // Children of an abandoned marker stay with the enclosing node.
+        let children = p.open.pop().expect("abandoned marker has an open entry");
+        p.note_child_height(children);
         if self.pos as usize == p.events.len() - 1 {
             if let Some(Event::Start { kind: None, forward_parent: None }) = p.events.last() {
                 p.events.pop();
@@ -356,9 +470,16 @@ impl Drop for Marker {
 }
 
 impl CompletedMarker {
-    /// Start a new node that will wrap this completed node.
+    /// Start a new node that will wrap this completed node. The wrapped subtree counts
+    /// towards [`MAX_NODE_DEPTH`]: a dead marker comes back when it would not fit.
     pub(crate) fn precede(self, p: &mut Parser<'_>) -> Marker {
-        let new_pos = p.start();
+        if self.start_pos == DEAD_MARKER {
+            return Marker { pos: DEAD_MARKER, completed: false };
+        }
+        let new_pos = p.start_with_height(self.height);
+        if new_pos.pos == DEAD_MARKER {
+            return new_pos;
+        }
         match &mut p.events[self.start_pos as usize] {
             Event::Start { forward_parent, .. } => {
                 *forward_parent = Some(new_pos.pos - self.start_pos);
@@ -374,12 +495,28 @@ impl CompletedMarker {
     }
 }
 
-/// Human readable name of a token kind for diagnostics.
+/// Human readable name of a syntax kind for diagnostics: keywords and symbols are quoted
+/// (`'model'`, `'{'`), other tokens get a plain English name, node kinds use their enum name
+/// in words (`ELEMENT_BODY` becomes `element body`).
 pub(crate) fn describe(kind: SyntaxKind) -> String {
     if let Some(kw) = kind.keyword_text() {
         return format!("'{kw}'");
     }
     let s = match kind {
+        WHITESPACE => "whitespace",
+        NEWLINE => "line break",
+        LINE_COMMENT => "line comment",
+        BLOCK_COMMENT => "block comment",
+        IDENT => "identifier",
+        BOOLEAN => "boolean",
+        LIB_ICON => "library icon",
+        URI => "uri",
+        STRING => "string",
+        MARKDOWN_STRING => "markdown string",
+        NUMBER => "number",
+        FLOAT => "decimal number",
+        PERCENT => "percentage",
+        HEX => "hex literal",
         L_CURLY => "'{'",
         R_CURLY => "'}'",
         L_PAREN => "'('",
@@ -392,6 +529,8 @@ pub(crate) fn describe(kind: SyntaxKind) -> String {
         STAR => "'*'",
         HASH => "'#'",
         DOT | STICKY_DOT => "'.'",
+        DOT_UNDERSCORE => "'._'",
+        DOT_WILDCARD => "'.*'",
         EQ => "'='",
         NOT_EQUAL => "'!='",
         ARROW => "'->'",
@@ -400,16 +539,10 @@ pub(crate) fn describe(kind: SyntaxKind) -> String {
         ARROW_L_BRACK => "'-['",
         R_BRACK_ARROW => "']->'",
         R_BRACK_BI_ARROW => "']<->'",
-        IDENT => "identifier",
-        STRING => "string",
-        MARKDOWN_STRING => "markdown string",
-        NUMBER => "number",
-        FLOAT => "float",
-        PERCENT => "percentage",
-        BOOLEAN => "boolean",
-        URI => "uri",
-        LIB_ICON => "icon",
-        _ => return format!("{kind:?}"),
+        ERROR => "invalid token",
+        __LAST => "end of file",
+        // Node kinds: `ELEMENT_BODY` -> `element body`.
+        _ => return format!("{kind:?}").to_lowercase().replace('_', " "),
     };
     s.to_string()
 }

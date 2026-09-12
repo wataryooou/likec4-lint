@@ -689,16 +689,29 @@ impl ElementBody {
     }
 }
 
-/// Source/target of a relation-like node with positional `FQN_REF` children.
-/// The source is present exactly when the node starts with an `FQN_REF`.
+/// Source/target of a relation-like node, decided relative to the connector (`->`, `<-`,
+/// `<->`, `-[kind]->`, `.kind`): the `FQN_REF` before it is the source, the first `FQN_REF`
+/// after it is the target. Without a connector (broken input) the first `FQN_REF` is the
+/// source. This keeps a missing source from being reported as the target and vice versa.
 fn source_and_target(node: &SyntaxNode) -> (Option<FqnRef>, Option<FqnRef>) {
-    let mut refs = support::children::<FqnRef>(node);
-    let first = refs.next();
-    if node.first_child_or_token().is_some_and(|el| el.kind() == FQN_REF) {
-        (first, refs.next())
-    } else {
-        (None, first)
+    let mut source = None;
+    let mut after_connector = false;
+    for el in node.children_with_tokens() {
+        match el.kind() {
+            ARROW | BACK_ARROW | BI_ARROW | ARROW_L_BRACK | RELATION_KIND_DOT_REF => after_connector = true,
+            FQN_REF => {
+                let fqn = el.into_node().and_then(FqnRef::cast);
+                if after_connector {
+                    return (source, fqn);
+                }
+                if source.is_none() {
+                    source = fqn;
+                }
+            }
+            _ => {}
+        }
     }
+    (source, None)
 }
 
 /// Relationship kind of a relation-like node: `.kind` or `-[kind]->`.
@@ -799,12 +812,14 @@ impl ExtendElementBody {
 }
 
 impl ExtendRelation {
+    /// The source reference (required by the grammar; `None` only in broken input).
     pub fn source(&self) -> Option<FqnRef> {
-        support::nth_child(&self.syntax, 0)
+        source_and_target(&self.syntax).0
     }
 
+    /// The target reference.
     pub fn target(&self) -> Option<FqnRef> {
-        support::nth_child(&self.syntax, 1)
+        source_and_target(&self.syntax).1
     }
 
     pub fn kind_ref(&self) -> Option<SyntaxToken> {
@@ -1843,12 +1858,14 @@ ast_enum!(
 );
 
 impl Step {
+    /// The reference before the connector (also for `<-`, where it is the receiving side).
     pub fn source(&self) -> Option<FqnRef> {
-        support::nth_child(&self.syntax, 0)
+        source_and_target(&self.syntax).0
     }
 
+    /// The reference after the connector.
     pub fn target(&self) -> Option<FqnRef> {
-        support::nth_child(&self.syntax, 1)
+        source_and_target(&self.syntax).1
     }
 
     pub fn is_backward(&self) -> bool {
@@ -2328,6 +2345,54 @@ mod tests {
         let nested = model.elements().next().unwrap().body().unwrap().relations().next().unwrap();
         assert!(nested.source().is_none());
         assert_eq!(nested.target().unwrap().text(), "z");
+    }
+
+    /// Source/target are decided by their position relative to the connector, so a missing
+    /// source (a syntax error) never makes the target show up as the source.
+    #[test]
+    fn relation_like_accessors_are_connector_relative() {
+        let parsed = parse("model {\n  extend a -> ghost { }\n  extend -> ghost { }\n}\n");
+        assert!(parsed.errors().iter().any(|e| e.message == "expected identifier"), "{:?}", parsed.errors());
+        let root = Root::cast(parsed.syntax()).unwrap();
+        let model = root.models().next().unwrap();
+        let extends: Vec<ExtendRelation> =
+            model.syntax().children().filter_map(ExtendRelation::cast).collect();
+        assert_eq!(extends.len(), 2);
+        assert_eq!(extends[0].source().unwrap().text(), "a");
+        assert_eq!(extends[0].target().unwrap().text(), "ghost");
+        assert!(extends[1].source().is_none());
+        assert_eq!(extends[1].target().unwrap().text(), "ghost");
+
+        // Implicit source inside a body, and a relation whose target is missing (error).
+        let parsed =
+            parse("model {\n  a = system {\n    -> b\n    c .uses\n  }\n}\ndeployment {\n  n = node {\n    -> m\n  }\n}\n");
+        assert!(!parsed.ok());
+        let root = Root::cast(parsed.syntax()).unwrap();
+        let element = root.models().next().unwrap().elements().next().unwrap();
+        let relations: Vec<Relation> = element.body().unwrap().relations().collect();
+        assert_eq!(relations.len(), 2);
+        assert!(relations[0].source().is_none());
+        assert_eq!(relations[0].target().unwrap().text(), "b");
+        assert_eq!(relations[1].source().unwrap().text(), "c");
+        assert!(relations[1].target().is_none());
+        let node = root.deployments().next().unwrap().nodes().next().unwrap();
+        let deployed: Vec<DeploymentRelation> = node.body().unwrap().relations().collect();
+        assert!(deployed[0].source().is_none());
+        assert_eq!(deployed[0].target().unwrap().text(), "m");
+
+        let parsed = parse("views {\n  dynamic view d {\n    a <- b\n    c -> \n  }\n}\n");
+        assert!(!parsed.ok());
+        let root = Root::cast(parsed.syntax()).unwrap();
+        let dynamic = root.views().next().unwrap().dynamic_views().next().unwrap();
+        let steps: Vec<StepStatement> = dynamic.body().unwrap().steps().collect();
+        let [StepStatement::Step(back), StepStatement::Step(broken)] = steps.as_slice() else {
+            panic!("expected two steps: {steps:?}")
+        };
+        assert!(back.is_backward());
+        assert_eq!(back.source().unwrap().text(), "a");
+        assert_eq!(back.target().unwrap().text(), "b");
+        assert_eq!(broken.source().unwrap().text(), "c");
+        assert!(broken.target().is_none());
     }
 
     #[test]

@@ -366,19 +366,44 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        // `"(?:[^"\\]|\\.)*"` — escapes are backslash + any character (newline included).
+        // `"(?:[^"\\]|\\.)*"` — an escape is a backslash plus any character except a line
+        // terminator (`.` in a JavaScript regex never matches `\n`, `\r`, U+2028 or U+2029),
+        // so a backslash directly before a line break (or at EOF) ends the match: no STRING.
         let rest = self.rest();
         let mut i = 1;
         while i < rest.len() {
             match rest[i] {
-                b'\\' => i += 2,
+                b'\\' => {
+                    if i + 1 >= rest.len() || line_terminator_len(&rest[i + 1..]) > 0 {
+                        break;
+                    }
+                    i += 2;
+                }
                 c if c == quote => return self.emit(STRING, i + 1),
                 _ => i += 1,
             }
         }
-        let len = rest.iter().take_while(|&&c| c != b'\n' && c != b'\r').count().max(1);
+        let len = line_len(rest).max(1);
         self.error(len, "unterminated string literal");
     }
+}
+
+/// Length of the line terminator at the start of `bytes` (`\n`, `\r`, U+2028, U+2029), else 0.
+fn line_terminator_len(bytes: &[u8]) -> usize {
+    match bytes {
+        [b'\n', ..] | [b'\r', ..] => 1,
+        [0xE2, 0x80, 0xA8, ..] | [0xE2, 0x80, 0xA9, ..] => 3,
+        _ => 0,
+    }
+}
+
+/// Number of bytes before the first line terminator (see [`line_terminator_len`]).
+fn line_len(bytes: &[u8]) -> usize {
+    let mut i = 0;
+    while i < bytes.len() && line_terminator_len(&bytes[i..]) == 0 {
+        i += 1;
+    }
+    i
 }
 
 fn non_space_len(bytes: &[u8]) -> usize {
@@ -576,6 +601,29 @@ line' ''"#
         let lexed = tokenize("'unterminated\nmodel");
         assert_eq!(lexed.tokens[0].kind, ERROR);
         assert_eq!(lexed.errors.len(), 1);
+    }
+
+    #[test]
+    fn backslash_before_line_break_does_not_escape() {
+        // Langium: `"(?:[^"\\]|\\.)*"` — `.` never matches a line terminator, so a backslash
+        // directly before a newline ends the STRING match and the token becomes a lexer error.
+        for (text, first) in [
+            ("\"a\\\nb\"", "\"a\\"),
+            ("'a\\\r\nb'", "'a\\"),
+            ("\"a\\\u{2028}b\"", "\"a\\"),
+            ("\"a\\\u{2029}b\"", "\"a\\"),
+        ] {
+            let k = kinds(text);
+            assert!(!k.contains(&(STRING, text)), "{text:?} must not lex as one STRING: {k:?}");
+            assert_eq!(k[0], (ERROR, first), "{text:?}");
+            let total: usize = tokenize(text).tokens.iter().map(|t| usize::from(t.len)).sum();
+            assert_eq!(total, text.len());
+        }
+        // A backslash at the very end of the input is not an escape either.
+        assert_eq!(kinds("\"a\\")[0].0, ERROR);
+        // Escaped quotes and other escapes are still fine, and raw newlines are allowed.
+        assert_eq!(kinds("\"a\\\"b\\\\\"")[0], (STRING, "\"a\\\"b\\\\\""));
+        assert_eq!(kinds("'a\nb'")[0], (STRING, "'a\nb'"));
     }
 
     #[test]

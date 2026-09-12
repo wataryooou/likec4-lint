@@ -4,6 +4,7 @@
 //! `ast.isX` guards become `SyntaxKind` checks and `f.property(...)` selections become
 //! positional child lookups (see `docs/DESIGN.md`, "Node shapes").
 
+use likec4_syntax::ast::{self, AstNode};
 use likec4_syntax::SyntaxKind::{self, *};
 use likec4_syntax::{NodeOrToken, SyntaxElement, SyntaxNode, SyntaxToken};
 
@@ -205,13 +206,23 @@ fn indent_content_in_braces(node: &SyntaxNode, lines: &LineIndex, c: &mut Collec
                     && el.text_range().end() <= close.text_range().start()
             })
             .collect();
+        // The TypeScript source skips an interior node that overlaps the previous one
+        // (`utils.areOverlap`, a workaround for the overlapping tag nodes of its CST). The
+        // check is inclusive, so a node that starts exactly where the previous one ends
+        // (`title 'x'description 'y'`, `a = system {}b = system`) is skipped as well and
+        // stays on the same line.
+        let mut previous: Option<SyntaxElement> = None;
         for el in interior {
             if !multiline {
                 c.surround(&el, one_space());
                 continue;
             }
-            c.prepend(&el, new_line());
-            c.prepend(&el, indent());
+            let overlaps = previous.as_ref().is_some_and(|p| el.text_range().start() <= p.text_range().end());
+            if !overlaps {
+                c.prepend(&el, new_line());
+                c.prepend(&el, indent());
+            }
+            previous = Some(el);
         }
     }
 
@@ -332,19 +343,18 @@ fn format_metadata_property(node: &SyntaxNode, c: &mut Collector) {
     }
 }
 
-/// `system sys1` vs `sys1 = system`: returns `(kind, name)` tokens.
+/// `system sys1` vs `sys1 = system`: returns `(kind, name)` tokens when both are present.
 fn kind_and_name(node: &SyntaxNode) -> Option<(SyntaxToken, SyntaxToken)> {
-    let idents = tokens(node, IDENT);
-    if idents.len() < 2 {
-        return None;
-    }
-    let (a, b) = (idents[0].clone(), idents[1].clone());
-    if token(node, EQ).is_some() {
-        // name = kind
-        Some((b, a))
-    } else {
-        // kind name
-        Some((a, b))
+    match node.kind() {
+        ELEMENT => {
+            let element = ast::Element::cast(node.clone())?;
+            Some((element.kind_token()?, element.name_token()?))
+        }
+        DEPLOYMENT_NODE => {
+            let deployment_node = ast::DeploymentNode::cast(node.clone())?;
+            Some((deployment_node.kind_token()?, deployment_node.name_token()?))
+        }
+        _ => None,
     }
 }
 

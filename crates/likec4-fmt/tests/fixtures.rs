@@ -2,12 +2,31 @@
 //!
 //! - `tests/fixtures/formatter/*`: pairs extracted from `LikeC4Formatter.spec.ts` (quoteStyle single)
 //! - `tests/fixtures/formatter-cli/*`: pairs generated with `likec4 format` (quoteStyle auto)
+//! - `tests/fixtures/formatter-quirks/*`: pairs pinning official quirks (quoteStyle auto)
 //! - `tests/corpus/examples` vs `tests/corpus/examples-formatted`: official examples (quoteStyle auto)
+//!
+//! Every fixture must format without error, except the ones listed in `SYNTAX_ERROR_FIXTURES`:
+//! an input the official formatter accepted must parse here too, so a `format` error is a
+//! parser regression even when the expected output equals the input.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use likec4_fmt::{format, FormatOptions, QuoteStyle};
+use likec4_fmt::{format, FormatError, FormatOptions, QuoteStyle};
+
+/// Fixtures whose expected output is deliberately not a fixed point of the formatter, because
+/// the official formatter is not idempotent on them either (measured with likec4 1.59.3):
+///
+/// - `comment-tab-indent-non-idempotent`: a comment indented with two tabs where two spaces
+///   are expected. Langium removes one raw character per column, so the first pass strips
+///   both tabs (column 0) and the second pass indents the comment again (two spaces).
+const NON_IDEMPOTENT_FIXTURES: &[&str] = &["comment-tab-indent-non-idempotent.input.c4"];
+
+/// Fixtures that must fail with a syntax error. The official formatter (likec4 1.59.3) reports
+/// them as invalid and leaves the file untouched, which is what the expected output pins:
+///
+/// - `45-preserves-empty-lines`: `metadata` without a `{ }` body (from `LikeC4Formatter.spec.ts`).
+const SYNTAX_ERROR_FIXTURES: &[&str] = &["45-preserves-empty-lines.input.c4"];
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
@@ -52,11 +71,19 @@ fn run(cases: &[Case], options: &FormatOptions, idempotent: bool) {
     assert!(!cases.is_empty(), "no fixtures found");
     let mut failures = Vec::new();
     for case in cases {
+        if SYNTAX_ERROR_FIXTURES.contains(&case.name.as_str()) {
+            match format(&case.input, options) {
+                Err(FormatError::SyntaxErrors(_)) if case.expected == case.input => {}
+                Err(err) => failures.push(format!("--- {} ---\nunexpected error: {err:#?}", case.name)),
+                Ok(_) => failures.push(format!("--- {} ---\nexpected a syntax error", case.name)),
+            }
+            continue;
+        }
         match format(&case.input, options) {
             Ok(actual) => {
                 if actual != case.expected {
                     failures.push(format!("--- {} ---\n{}", case.name, diff(&case.expected, &actual)));
-                } else if idempotent {
+                } else if idempotent && !NON_IDEMPOTENT_FIXTURES.contains(&case.name.as_str()) {
                     let again = format(&actual, options).unwrap();
                     if again != actual {
                         failures.push(format!(
@@ -67,8 +94,6 @@ fn run(cases: &[Case], options: &FormatOptions, idempotent: bool) {
                     }
                 }
             }
-            // The official formatter leaves documents with syntax errors untouched.
-            Err(_) if case.expected == case.input => {}
             Err(err) => failures.push(format!("--- {} ---\nformat error: {err}\n{:#?}", case.name, err)),
         }
     }
@@ -114,15 +139,14 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-#[test]
-fn official_examples_match_official_output() {
+fn corpus_cases() -> Vec<Case> {
     let root = repo_root();
     let original = root.join("tests/corpus/examples");
     let formatted = root.join("tests/corpus/examples-formatted");
     let mut files = Vec::new();
     walk(&original, &mut files);
     files.sort();
-    let cases: Vec<Case> = files
+    files
         .into_iter()
         .map(|input| {
             let rel = input.strip_prefix(&original).unwrap();
@@ -132,6 +156,42 @@ fn official_examples_match_official_output() {
                 expected: fs::read_to_string(formatted.join(rel)).unwrap(),
             }
         })
-        .collect();
-    run(&cases, &FormatOptions::default(), true);
+        .collect()
+}
+
+#[test]
+fn official_examples_match_official_output() {
+    run(&corpus_cases(), &FormatOptions::default(), true);
+}
+
+/// Tab indentation has no official oracle (the `likec4` CLI only formats with spaces), so the
+/// fixtures are used to require idempotence instead of byte-exact output.
+#[test]
+fn all_fixtures_are_idempotent_with_tabs() {
+    let root = repo_root();
+    let mut cases = Vec::new();
+    for dir in ["formatter", "formatter-cli", "formatter-quirks"] {
+        cases.extend(pairs(&root.join("tests/fixtures").join(dir), ".input.c4", ".expected.c4"));
+    }
+    cases.extend(corpus_cases());
+    let options = FormatOptions { insert_spaces: false, ..FormatOptions::default() };
+    let mut failures = Vec::new();
+    for case in &cases {
+        let name = case.name.as_str();
+        if NON_IDEMPOTENT_FIXTURES.contains(&name) || SYNTAX_ERROR_FIXTURES.contains(&name) {
+            continue;
+        }
+        let once = format(&case.input, &options).unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        let twice = format(&once, &options).unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        if once != twice {
+            failures.push(format!(
+                "--- {} (not idempotent with tabs) ---\n{}",
+                case.name,
+                diff(&once, &twice)
+            ));
+        }
+    }
+    if !failures.is_empty() {
+        panic!("{} of {} fixture(s) failed:\n\n{}", failures.len(), cases.len(), failures.join("\n"));
+    }
 }

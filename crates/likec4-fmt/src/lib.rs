@@ -56,6 +56,10 @@ impl Default for FormatOptions {
 pub enum FormatError {
     /// The document has syntax errors; the official formatter refuses to format it.
     SyntaxErrors(Vec<SyntaxError>),
+    /// The input parsed, but the formatted text does not: the formatter would have produced
+    /// a document with syntax errors. `formatted` is the rejected output, `errors` are the
+    /// errors found in it (ranges refer to `formatted`).
+    Unstable { errors: Vec<SyntaxError>, formatted: String },
 }
 
 impl std::fmt::Display for FormatError {
@@ -64,6 +68,11 @@ impl std::fmt::Display for FormatError {
             FormatError::SyntaxErrors(errors) => {
                 write!(f, "document has {} syntax error(s) and was not formatted", errors.len())
             }
+            FormatError::Unstable { errors, .. } => write!(
+                f,
+                "formatting would produce a document with {} syntax error(s); the output was discarded",
+                errors.len()
+            ),
         }
     }
 }
@@ -71,12 +80,20 @@ impl std::fmt::Display for FormatError {
 impl std::error::Error for FormatError {}
 
 /// Format a LikeC4 document. Returns the formatted text (which may be identical to the input).
+///
+/// The result is re-parsed before it is returned: a formatting pass that would turn a valid
+/// document into an invalid one yields [`FormatError::Unstable`] instead of the broken text.
 pub fn format(text: &str, options: &FormatOptions) -> Result<String, FormatError> {
     let parse = likec4_syntax::parse(text);
     if !parse.ok() {
         return Err(FormatError::SyntaxErrors(parse.errors().to_vec()));
     }
-    Ok(format_parsed(&parse.syntax(), text, options))
+    let formatted = format_parsed(&parse.syntax(), text, options);
+    let check = likec4_syntax::parse(&formatted);
+    if !check.ok() {
+        return Err(FormatError::Unstable { errors: check.errors().to_vec(), formatted });
+    }
+    Ok(formatted)
 }
 
 /// Format an already parsed, error-free document.
@@ -85,6 +102,35 @@ pub fn format_parsed(root: &likec4_syntax::SyntaxNode, text: &str, options: &For
     let mut collector = engine::Collector::default();
     rules::collect(root, &lines, &mut collector);
     let mut edits = engine::compute_edits(root, text, options, collector);
-    edits.extend(quotes::normalize(root, text, options.quote_style));
+    edits.extend(quotes::normalize(root, options.quote_style));
     engine::apply_edits(text, edits)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use likec4_syntax::Range;
+
+    #[test]
+    fn format_returns_the_formatted_text_for_valid_input() {
+        let input = "model {\na = system\n}\n";
+        assert_eq!(format(input, &FormatOptions::default()).unwrap(), "model {\n  a = system\n}\n");
+    }
+
+    #[test]
+    fn format_reports_syntax_errors_without_formatting() {
+        let err = format("model {", &FormatOptions::default()).unwrap_err();
+        assert!(matches!(err, FormatError::SyntaxErrors(_)), "{err:?}");
+    }
+
+    #[test]
+    fn unstable_display_counts_errors_and_hides_the_output() {
+        let err = FormatError::Unstable {
+            errors: vec![SyntaxError { message: "unterminated".into(), range: Range::empty(0.into()) }],
+            formatted: "REJECTED OUTPUT".into(),
+        };
+        let text = err.to_string();
+        assert!(text.contains("1 syntax error(s)"), "{text}");
+        assert!(!text.contains("REJECTED OUTPUT"), "{text}");
+    }
 }

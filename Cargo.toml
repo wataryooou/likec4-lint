@@ -3,22 +3,22 @@ resolver = "2"
 members = [
   "crates/likec4-syntax",
   "crates/likec4-fmt",
+  "crates/likec4-rules",
   "crates/likec4-lint",
-  "crates/likec4-cli",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/wataryooou/likec4-lint"
 authors = ["wataryooou"]
 
 [workspace.dependencies]
-likec4-syntax = { path = "crates/likec4-syntax" }
-likec4-fmt = { path = "crates/likec4-fmt" }
-likec4-lint = { path = "crates/likec4-lint" }
+likec4-syntax = { path = "crates/likec4-syntax", version = "0.1.0" }
+likec4-fmt = { path = "crates/likec4-fmt", version = "0.1.0" }
+likec4-rules = { path = "crates/likec4-rules", version = "0.1.0" }
 rowan = "0.17"
 text-size = "1.1"
 serde = { version = "1", features = ["derive"] }

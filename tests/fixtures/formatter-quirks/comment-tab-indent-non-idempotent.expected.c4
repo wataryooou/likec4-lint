@@ -1,0 +1,7 @@
+specification {
+  element system
+}
+model {
+// comment
+  a = system
+}

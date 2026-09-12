@@ -43,7 +43,11 @@ fn corpus_files() -> Vec<PathBuf> {
     collect(&root.join("tests/corpus/examples"), &mut files);
     collect(&root.join("tests/corpus/examples-formatted"), &mut files);
     collect(&root.join("tests/fixtures/formatter"), &mut files);
-    assert!(files.len() >= 170, "expected the full corpus, found {} files", files.len());
+    // Generated with the official `likec4 fmt` (v1.59.3): every file parsed there without a
+    // syntax error, so every file must parse here without one too.
+    collect(&root.join("tests/fixtures/formatter-cli"), &mut files);
+    collect(&root.join("tests/fixtures/formatter-quirks"), &mut files);
+    assert!(files.len() >= 280, "expected the full corpus, found {} files", files.len());
     files
 }
 

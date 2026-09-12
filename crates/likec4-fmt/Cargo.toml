@@ -10,8 +10,6 @@ authors.workspace = true
 
 [dependencies]
 likec4-syntax.workspace = true
-rowan.workspace = true
-text-size.workspace = true
 
 [dev-dependencies]
 similar.workspace = true

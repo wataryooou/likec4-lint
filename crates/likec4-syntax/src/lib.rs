@@ -17,6 +17,7 @@ pub use kind::{
     is_valid_id, is_valid_id_terminal, LikeC4Language, SyntaxElement, SyntaxElementChildren, SyntaxKind,
     SyntaxNode, SyntaxNodeChildren, SyntaxToken, ALL_KEYWORDS, HARD_RESERVED_WORDS, SOFT_RESERVED_WORDS,
 };
+pub use parser::MAX_NODE_DEPTH;
 pub use rowan::{Direction, GreenNode, NodeOrToken, TextSize, WalkEvent};
 pub use text_size::TextRange as Range;
 

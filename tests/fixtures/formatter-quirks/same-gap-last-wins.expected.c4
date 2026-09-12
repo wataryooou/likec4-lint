@@ -1,0 +1,19 @@
+import { a } from 'proj'
+specification {
+  element system
+  relationship uses
+}
+model {
+  b = system
+  c = system
+}
+views {
+  view v {
+    include b -[uses]-> c
+  }
+  dynamic view d {
+    try 'x' {
+      b -> c
+    }
+  }
+}

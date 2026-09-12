@@ -7,8 +7,9 @@
 
 use std::collections::HashMap;
 
-use likec4_syntax::{NodeOrToken, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, WalkEvent};
-use text_size::{TextRange, TextSize};
+use likec4_syntax::{
+    NodeOrToken, Range as TextRange, SyntaxElement, SyntaxNode, SyntaxToken, TextSize, WalkEvent,
+};
 
 use crate::FormatOptions;
 
@@ -162,7 +163,8 @@ pub struct TextEdit {
     pub new_text: String,
 }
 
-/// Line/column lookup for byte offsets.
+/// Line/column lookup for byte offsets. Like the LSP text document Langium formats,
+/// `\n`, `\r\n` and a lone `\r` each end a line.
 #[derive(Debug)]
 pub struct LineIndex {
     line_starts: Vec<u32>,
@@ -171,8 +173,14 @@ pub struct LineIndex {
 impl LineIndex {
     pub fn new(text: &str) -> Self {
         let mut line_starts = vec![0u32];
-        for (i, b) in text.bytes().enumerate() {
-            if b == b'\n' {
+        let bytes = text.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            let breaks = match b {
+                b'\n' => true,
+                b'\r' => bytes.get(i + 1) != Some(&b'\n'),
+                _ => false,
+            };
+            if breaks {
                 line_starts.push(i as u32 + 1);
             }
         }
@@ -471,8 +479,25 @@ fn create_hidden_text_edits(
             let unit = if ctx.options.insert_spaces { " " } else { "\t" };
             edits.push(TextEdit { range: TextRange::empty(pos), new_text: unit.repeat(increase as usize) });
         } else {
-            let j = line_text.bytes().take_while(|&c| c == b' ' || c == b'\t').count();
-            let remove = j.min(increase.unsigned_abs() as usize);
+            let decrease = increase.unsigned_abs() as usize;
+            let leading = line_text.bytes().take_while(|&c| c == b' ' || c == b'\t').count();
+            let remove = if ctx.options.insert_spaces {
+                // Langium removes one raw character per column. This over-removes when the
+                // comment is indented with tabs (a tab counts as `tab_size` columns), which
+                // makes the official formatter non-idempotent on such comments; kept for parity.
+                leading.min(decrease)
+            } else {
+                // Deviation from Langium: with tabs, columns are counted in indentation units
+                // (`tab_size` spaces or one tab), so removing one raw space per unit leaves the
+                // measured indentation unchanged and the comment drifts one space per pass.
+                // Remove the shortest prefix that brings the measured indentation down by
+                // `decrease` units instead, which makes the result a fixed point.
+                let whitespace = &line_text[..leading];
+                let target = ctx.existing_indentation_chars(whitespace).saturating_sub(decrease);
+                (0..=leading)
+                    .find(|&n| ctx.existing_indentation_chars(&whitespace[n..]) <= target)
+                    .unwrap_or(leading)
+            };
             edits.push(TextEdit {
                 range: TextRange::new(pos, pos + TextSize::new(remove as u32)),
                 new_text: String::new(),
@@ -533,5 +558,33 @@ pub fn is_same_line(lines: &LineIndex, a: TextRange, b: TextRange) -> bool {
     lines.line(prev.end()) == lines.line(next.start())
 }
 
-#[allow(dead_code)]
-fn _kind_check(_: SyntaxKind) {}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_index_treats_cr_crlf_and_lf_as_line_breaks() {
+        let text = "a\r\nb\rc\nd";
+        let index = LineIndex::new(text);
+        assert_eq!(index.line_count(), 4);
+        let lines: Vec<usize> = (0..=text.len()).map(|o| index.line(TextSize::new(o as u32))).collect();
+        assert_eq!(lines, vec![0, 0, 0, 1, 1, 2, 2, 3, 3]);
+        assert_eq!(index.line_start(1), TextSize::new(3));
+        assert_eq!(index.line_start(2), TextSize::new(5));
+        assert_eq!(index.line_start(3), TextSize::new(7));
+    }
+
+    #[test]
+    fn comment_reindentation_with_tabs_is_idempotent() {
+        let options = FormatOptions { insert_spaces: false, ..FormatOptions::default() };
+        for input in [
+            "model {\n    // comment\n  a = system\n}\n",
+            "model {\n      /* block\n   ragged\n        */\n  a = system\n}\n",
+            "model {\n a = system {\n     // deep\n }\n}\n",
+        ] {
+            let once = crate::format(input, &options).unwrap();
+            let twice = crate::format(&once, &options).unwrap();
+            assert_eq!(once, twice, "input: {input:?}");
+        }
+    }
+}
