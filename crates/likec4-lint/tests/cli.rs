@@ -829,3 +829,18 @@ fn lint_rejects_invalid_format_settings_too() {
         assert!(stderr.contains(needle), "{body}: {stderr}");
     }
 }
+
+#[test]
+fn disable_next_line_comment_suppresses_a_single_warning() {
+    let project = Project::new();
+    let src = "specification {\n  element system\n  // likec4-lint-disable-next-line unused-tag\n  tag a\n  tag b\n}\nmodel {\n  x = system\n}\n";
+    project.write("model.c4", src);
+    let (report, code) = project.json(&["lint", "--format", "json"]);
+    assert_eq!(code, Some(0), "{report}");
+    assert_eq!(rule_ids(&report), ["unused-tag"], "{report}");
+    assert_eq!(
+        report["diagnostics"][0]["message"].as_str(),
+        Some("Tag 'b' is declared but never used"),
+        "{report}"
+    );
+}

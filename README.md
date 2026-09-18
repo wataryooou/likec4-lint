@@ -117,6 +117,47 @@ from, say, an included file), it is just not itself reported on; `format` does n
 write excluded documents at all. A path passed explicitly on the command line is always
 processed regardless of `exclude`.
 
+### Suppressing diagnostics in the source
+
+Turning a rule `off` in `likec4-lint.toml` silences it everywhere. To silence a single
+occurrence instead, use a comment directive next to the code, the same way
+`eslint-disable-next-line` works:
+
+```likec4
+specification {
+  element system
+  // likec4-lint-disable-next-line unused-tag -- kept for the next release
+  tag a
+  tag b
+  tag c // likec4-lint-disable-line unused-tag
+}
+model {
+  x = system
+}
+```
+
+Three forms, written as either a `//` line comment or a `/* ... */` block comment:
+
+- `likec4-lint-disable-next-line [rules]` silences diagnostics that start on the line right
+  after the comment (after the comment's last line, for a block comment that spans several
+  lines).
+- `likec4-lint-disable-line [rules]` silences diagnostics that start on the same line as the
+  comment, so it reads naturally at the end of a line.
+- `likec4-lint-disable-file [rules]` silences diagnostics anywhere in the document; the
+  comment can be placed anywhere in the file.
+
+`[rules]` is a comma- or whitespace-separated list of rule ids (`unused-tag`,
+`unused-tag reserved-name`, `unused-tag, reserved-name`); omitting it silences every rule on
+the targeted line(s) or file. Anything after ` -- ` is a free-form reason and is ignored by
+the parser. A directive applies to every diagnostic `lint()` produces, including
+`syntax-error`; it does not apply to configuration diagnostics (`unknown-rule`,
+`unknown-rule-option`, which carry no file) or to `format`'s own `needs-formatting`.
+
+A rule id in `[rules]` that isn't a known rule is reported as `unknown-rule` (a warning) at
+the comment's location, the same diagnostic `[lint.rules]` produces for an unrecognised entry
+— run `likec4-lint lint --list-rules` to see the known ids. The rest of the directive's rule
+list still applies; only the unrecognised id is flagged.
+
 ## Lint rules
 
 `likec4-lint lint --list-rules` prints the current list. Defaults:

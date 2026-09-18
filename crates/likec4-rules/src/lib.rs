@@ -14,6 +14,7 @@
 mod config;
 mod model;
 mod rules;
+mod suppress;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -185,7 +186,10 @@ pub fn rules() -> &'static [RuleInfo] {
 ///
 /// Rules are enabled, silenced or re-levelled through `config.rules`; an unknown rule id
 /// yields one `unknown-rule` warning and an option a rule does not declare yields one
-/// `unknown-rule-option` warning, both with an empty `file`. The result is sorted by
+/// `unknown-rule-option` warning, both with an empty `file`. Source comments
+/// (`likec4-lint-disable-next-line`, `-disable-line` and `-disable-file`, see `suppress`)
+/// then filter the result; an unknown rule id named in one of those comments also yields an
+/// `unknown-rule` warning, at the comment's location. The result is sorted by
 /// `(file, range.start, rule)`.
 pub fn lint(files: &[SourceFile], project_roots: &[PathBuf], config: &LintConfig) -> Vec<Diagnostic> {
     let resolved = config::resolve(config);
@@ -197,6 +201,7 @@ pub fn lint(files: &[SourceFile], project_roots: &[PathBuf], config: &LintConfig
         rules::RUNNERS[rule.index](&mut cx);
         diagnostics.extend(cx.into_diagnostics(info.id, rule.severity));
     }
+    let mut diagnostics = suppress::apply(&workspace, diagnostics);
     diagnostics.sort_by(|a, b| {
         a.file
             .cmp(&b.file)

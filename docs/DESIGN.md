@@ -570,6 +570,25 @@ there are no other findings. An option of the wrong type (for example a number w
 `naming-convention`'s `pattern` wants a string) is reported under the rule's own id and the
 rule falls back to that option's default.
 
+Suppressing a single occurrence, instead of a whole rule, is done in the source
+(`crates/likec4-rules/src/suppress.rs`, applied by `lint()` after every rule has run and
+before the result is sorted, so it sees the final diagnostic list, `unknown-rule` and all). It
+walks every document's syntax tree for `LINE_COMMENT` / `BLOCK_COMMENT` tokens
+(`SyntaxKind::is_comment`) and parses each one's text, markers stripped and trimmed, against
+three keywords: `likec4-lint-disable-next-line`, `likec4-lint-disable-line` and
+`likec4-lint-disable-file`, each optionally followed by a comma/whitespace-separated list of
+rule ids (missing list = every rule; ` -- ` and anything after it is a discarded reason). A
+small line index built from the document's text (byte offsets of each `\n`; `likec4-rules`
+does not depend on `likec4-lint`, whose `report::LineIndex` serves the same purpose for
+rendering) turns the comment's `TextRange` into the 0-based line
+its directive targets: the line after the comment's end for `next-line`, the comment's own
+start line for `line`, no line (the whole document) for `file`. A diagnostic is dropped when
+some directive in its document is in scope for its `range.start()` line (or is file-scoped)
+and either names no rules or names its `rule`; diagnostics with an empty `file` (configuration
+diagnostics) are never matched. A rule id in a directive that `crate::rules()` doesn't know is
+reported as `unknown-rule` at the comment's location — appended to the diagnostic list before
+filtering runs, so it is itself subject to suppression like any other diagnostic.
+
 Diagnostics: `{ rule, severity, message, file, range, help, related }`, where `related` is an
 optional second location (`{ file, range, message }`, used by the `duplicate-*` rules to point
 at the first declaration). Rendered with `annotate-snippets` (pretty) or as JSON (`--format
