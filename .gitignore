@@ -2,3 +2,9 @@
 **/*.rs.bk
 .DS_Store
 .oracle/
+/npm/**/bin/likec4-lint
+/npm/**/bin/likec4-lint.exe
+/npm/**/README.md
+/npm/**/LICENSE
+/npm/**/*.tgz
+/npm/**/node_modules/

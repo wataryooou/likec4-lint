@@ -140,3 +140,116 @@ jobs:
         run: |
           echo "::error::CARGO_REGISTRY_TOKEN secret is not set; add it and re-run this job to publish to crates.io."
           exit 1
+
+  publish-npm:
+    name: Publish npm packages
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Use the latest npm (trusted publishing requires npm >= 11.5.1)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@latest
+          npm --version
+      - name: Stage platform binaries into npm/@likec4-lint/*
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+
+          stage_unix() {
+            local target="$1" dir="$2"
+            local stage="likec4-lint-${version}-${target}"
+            tar -xzf "dist/${stage}.tar.gz" -C dist
+            local dest="npm/@likec4-lint/${dir}/bin"
+            mkdir -p "$dest"
+            cp "dist/${stage}/likec4-lint" "$dest/likec4-lint"
+            chmod 755 "$dest/likec4-lint"
+          }
+
+          stage_windows() {
+            local target="$1" dir="$2"
+            local stage="likec4-lint-${version}-${target}"
+            unzip -q "dist/${stage}.zip" -d dist
+            local dest="npm/@likec4-lint/${dir}/bin"
+            mkdir -p "$dest"
+            cp "dist/${stage}/likec4-lint.exe" "$dest/likec4-lint.exe"
+          }
+
+          stage_unix x86_64-unknown-linux-gnu linux-x64
+          stage_unix aarch64-unknown-linux-gnu linux-arm64
+          stage_unix x86_64-apple-darwin darwin-x64
+          stage_unix aarch64-apple-darwin darwin-arm64
+          stage_windows x86_64-pc-windows-msvc win32-x64
+      - name: Stamp the release version into the npm package.json files
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/npm-prepare.mjs "${GITHUB_REF_NAME#v}"
+      - name: Verify every platform package has its binary staged
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in darwin-arm64:likec4-lint darwin-x64:likec4-lint linux-arm64:likec4-lint linux-x64:likec4-lint win32-x64:likec4-lint.exe; do
+            dir="${pair%%:*}"
+            exe="${pair##*:}"
+            path="npm/@likec4-lint/${dir}/bin/${exe}"
+            if [ ! -f "$path" ]; then
+              echo "::error::missing ${path}"
+              exit 1
+            fi
+          done
+      - name: npm pack --dry-run (sanity check package contents)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for dir in npm/@likec4-lint/*/ npm/likec4-lint/; do
+            echo "--- ${dir} ---"
+            npm pack --dry-run "$dir"
+          done
+      # Trusted publishing (OIDC, no npm token) requires that each package already exists on
+      # the registry and that this workflow file (release.yml) is registered as its trusted
+      # publisher -- see docs/RELEASING.md for the one-time bootstrap. A 404 on `npm publish`
+      # here does not distinguish "package was never created" from "trusted publisher does not
+      # match this workflow".
+      #
+      # Both publish steps skip a package whose exact version is already on the registry, so
+      # that re-running this job for the same tag (e.g. via "Re-run failed jobs" after a
+      # mid-loop failure) resumes instead of failing again on the packages it already published.
+      - name: Publish platform packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          for dir in npm/@likec4-lint/*/; do
+            name="$(node -p "require('./${dir}package.json').name")"
+            version="$(node -p "require('./${dir}package.json').version")"
+            if npm view "${name}@${version}" version >/dev/null 2>&1; then
+              echo "skipping ${name}@${version}: already published"
+              continue
+            fi
+            npm publish "$dir"
+          done
+      - name: Publish the main package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./npm/likec4-lint/package.json').name")"
+          version="$(node -p "require('./npm/likec4-lint/package.json').version")"
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "skipping ${name}@${version}: already published"
+            exit 0
+          fi
+          npm publish npm/likec4-lint

@@ -41,12 +41,21 @@ change is caught by CI rather than by users.
 ## Install
 
 ```sh
+# npm (no Rust toolchain needed; prebuilt binaries for Linux x64/arm64, macOS x64/arm64, Windows x64)
+npm install --save-dev likec4-lint   # or: pnpm add -D / yarn add -D / bun add -d
+npx likec4-lint check
+```
+
+```sh
 cargo install likec4-lint   # once published
 # or from a checkout
 cargo install --path crates/likec4-lint
 # or build from source without installing
 cargo build --release   # -> target/release/likec4-lint
 ```
+
+Prebuilt archives for every platform above are also attached to each
+[GitHub Release](https://github.com/wataryooou/likec4-lint/releases).
 
 ## Usage
 

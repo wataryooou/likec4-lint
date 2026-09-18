@@ -1,0 +1,41 @@
+{
+  "name": "likec4-lint",
+  "version": "0.0.0",
+  "description": "Fast linter and formatter for the LikeC4 architecture-as-code DSL",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wataryooou/likec4-lint.git"
+  },
+  "homepage": "https://github.com/wataryooou/likec4-lint#readme",
+  "bugs": {
+    "url": "https://github.com/wataryooou/likec4-lint/issues"
+  },
+  "keywords": [
+    "likec4",
+    "linter",
+    "formatter",
+    "architecture",
+    "dsl",
+    "c4"
+  ],
+  "bin": {
+    "likec4-lint": "bin/likec4-lint.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "optionalDependencies": {
+    "@likec4-lint/darwin-arm64": "0.0.0",
+    "@likec4-lint/darwin-x64": "0.0.0",
+    "@likec4-lint/linux-arm64": "0.0.0",
+    "@likec4-lint/linux-x64": "0.0.0",
+    "@likec4-lint/win32-x64": "0.0.0"
+  }
+}

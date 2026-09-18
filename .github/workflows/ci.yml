@@ -32,6 +32,9 @@ jobs:
       - run: cargo build --release --locked
       - name: Smoke test the binary on the corpus
         run: ./target/release/likec4-lint check tests/corpus/examples-formatted
+      - name: Smoke test the npm launcher against the built binary
+        shell: bash
+        run: scripts/npm-smoke.sh
 
   msrv:
     name: MSRV (rust-version in Cargo.toml)

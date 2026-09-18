@@ -1,0 +1,22 @@
+{
+  "name": "@likec4-lint/darwin-x64",
+  "version": "0.0.0",
+  "description": "likec4-lint binary for darwin x64. Install likec4-lint instead of this package.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wataryooou/likec4-lint.git"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

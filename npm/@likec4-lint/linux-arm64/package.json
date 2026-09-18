@@ -1,0 +1,25 @@
+{
+  "name": "@likec4-lint/linux-arm64",
+  "version": "0.0.0",
+  "description": "likec4-lint binary for linux arm64. Install likec4-lint instead of this package.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wataryooou/likec4-lint.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "files": [
+    "bin"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
