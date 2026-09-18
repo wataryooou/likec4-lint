@@ -14,6 +14,7 @@ on:
         default: latest
         required: false
   push:
+    branches: [main]
     paths:
       - scripts/check-oracle-drift.sh
       - .github/workflows/oracle-drift.yml
@@ -47,7 +48,8 @@ jobs:
         run: |
           mkdir -p .oracle
           cd .oracle
-          npm init -y >/dev/null
+          # `npm init -y` would name the package after the directory and reject ".oracle".
+          printf '{"name":"oracle","private":true}\n' > package.json
           npm install --no-audit --no-fund "likec4@$LIKEC4_VERSION"
           ./node_modules/.bin/likec4 --version
       - name: Check fixtures and upstream examples against the official CLI
