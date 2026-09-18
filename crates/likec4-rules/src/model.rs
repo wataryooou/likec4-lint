@@ -227,10 +227,7 @@ impl Project {
             if fqns.contains(&candidate) {
                 break candidate;
             }
-            match scope {
-                Some(s) => scope = parent_fqn(s),
-                None => return None,
-            }
+            scope = parent_fqn(scope?);
         };
         for segment in segments {
             fqn = join_fqn(Some(&fqn), segment);
