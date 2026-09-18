@@ -86,17 +86,26 @@ secret. This needs one-time setup before the first tag push:
 
 ## Recovering from a failed release run
 
-Fix the underlying problem, then re-run the *same* tag's workflow run with
-"Re-run failed jobs" in the GitHub Actions UI. Do not push a new tag for the
-same version: crates.io and npm both permanently reject re-publishing an
-existing version, so a new tag would need a version bump anyway.
-`check-version`, `build` and `release` are safe to re-run (idempotent or
-additive). `publish-npm`'s two publish steps explicitly skip any package
-whose exact version is already on the npm registry, so re-running it after a
-partial failure (say, 3 of 5 platform packages published before the job
-died) resumes with the remaining packages instead of failing again on the
-ones already published. `publish` (crates.io) relies on
-`cargo publish --workspace` itself; it has not been verified to skip
-already-published crates the same way, so a partial crates.io failure may
-need to be finished by hand -- check the job log for which crates actually
-published before re-running.
+Do not push a new tag for the same version: crates.io and npm both
+permanently reject re-publishing an existing version, so a new tag would
+need a version bump anyway.
+
+- If the failure was environmental (a registry hiccup, a missing secret),
+  fix it and use "Re-run failed jobs" on the *same* tag's run in the GitHub
+  Actions UI. `check-version`, `build` and `release` are safe to re-run.
+- If the failure is in the workflow itself, re-running does not help: a
+  re-run uses the workflow file as of the tag. Fix the workflow on `main`,
+  then publish the npm packages of the existing release from there:
+
+  ```sh
+  gh workflow run release.yml -f tag=vX.Y.Z
+  ```
+
+  This runs only the `publish-npm` job. It downloads the archives from the
+  GitHub Release instead of rebuilding, and skips every package whose exact
+  version is already on npm, so a partially published release resumes with
+  the remaining packages.
+- `publish` (crates.io) relies on `cargo publish --workspace`; it has not
+  been verified to skip already-published crates, so a partial crates.io
+  failure may need to be finished by hand. Check the job log for which
+  crates were uploaded before re-running.
