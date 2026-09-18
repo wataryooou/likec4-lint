@@ -30,6 +30,8 @@ pub mod unknown_element_kind;
 pub mod unknown_relationship_kind;
 pub mod unknown_tag;
 pub mod unresolved_reference;
+pub mod unused_custom_color;
+pub mod unused_deployment_node_kind;
 pub mod unused_element_kind;
 pub mod unused_relationship_kind;
 pub mod unused_tag;
@@ -233,6 +235,8 @@ registry!(
     unused_element_kind,
     unused_tag,
     unused_relationship_kind,
+    unused_deployment_node_kind,
+    unused_custom_color,
     empty_body,
     view_without_rules,
     deprecated_element_predicate,

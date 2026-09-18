@@ -131,7 +131,7 @@ processed regardless of `exclude`.
 | `unresolved-reference` | error | yes | relation endpoint, `extend`, `instanceOf`, `navigateTo`, `view ... of`, `extends`, `global predicate` / `global style` target, or a view rule element (`include` / `exclude` / `style` / `rank`) that does not exist |
 | `invalid-color` | error | yes | bad hex length, rgb component or alpha out of range |
 | `self-relation` | warning | yes, as an error (`Invalid parent-child relationship`) | `a -> a` in model or deployment relations, comparing both endpoints after resolving them from the enclosing scope; an endpoint that does not resolve is left to `unresolved-reference` instead |
-| `unused-element-kind`, `unused-tag`, `unused-relationship-kind` | warning | no | declared but never used, as seen from the declaring project: a use in one of its own documents, or in a document that imports it, counts |
+| `unused-element-kind`, `unused-tag`, `unused-relationship-kind`, `unused-deployment-node-kind`, `unused-custom-color` | warning | no | declared but never used, as seen from the declaring project: a use in one of its own documents, or in a document that imports it, counts |
 | `empty-body` | warning | no | `{ }` with nothing (or only comments) inside, for every brace-owning construct (specification/model/views/deployment/global blocks, element/relation/extend/deployment-node/instance bodies, `style`, `metadata`, `group`, `rank`, predicate/style groups, dynamic-view sub-flows); import lists and `likec4lib` are excluded |
 | `view-without-rules` | warning | no | a view with no `include` / `exclude` / `global predicate`; dynamic views and views with `extends` are exempt |
 | `deprecated-element-predicate` | warning | no | `element.kind = x` / `element.tag = #x` expressions |

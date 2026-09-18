@@ -528,6 +528,8 @@ Rules (id, severity, description):
 | `unused-element-kind` | warning | declared kind never used, as seen from the declaring project: a use in one of its own documents or in an importing document counts |
 | `unused-tag` | warning | declared tag never used (same visibility as `unused-element-kind`) |
 | `unused-relationship-kind` | warning | declared relationship kind never used (same visibility as `unused-element-kind`) |
+| `unused-deployment-node-kind` | warning | declared deployment node kind never used (same visibility as `unused-element-kind`) |
+| `unused-custom-color` | warning | declared custom colour never used (same visibility as `unused-element-kind`) |
 | `empty-body` | warning | `{ }` with nothing but whitespace or comments inside, checked for every brace-owning node kind (top-level blocks, specification kind/tag bodies, element/relation/extend/deployment-node/instance bodies, view bodies, `style`/`metadata`/`with` blocks, view rule `group`/`rank`, global predicate/style groups, dynamic-view sub-flows); deliberately skipped: `import { ... }` (a list, not a body), `likec4lib` and `ERROR_NODE` |
 | `view-without-rules` | warning | an element or deployment view with no `include`/`exclude` or global predicate rule; a view with `extends` and any dynamic view are exempt |
 | `deprecated-element-predicate` | warning | `element.kind` / `element.tag` expressions (grammar marks them as backwards compatibility) |
