@@ -249,30 +249,36 @@ jobs:
       # Package directories are passed with a leading `./`: without it npm reads `npm/likec4-lint`
       # as the GitHub shorthand `github:npm/likec4-lint`.
       #
-      # Both publish steps skip a package whose exact version is already on the registry, so
-      # that running this job again for the same tag resumes instead of failing on the packages
-      # it already published.
-      - name: Publish platform packages
+      # A version that is already on the registry is skipped, so running this job again for the
+      # same tag resumes instead of failing on the packages it already published. The registry
+      # serves package documents from a cache for a few minutes, so a version published moments
+      # ago can slip past the `npm view` check; the 409 the registry answers with is then treated
+      # as "already published" too.
+      - name: Publish npm packages (platform packages first, then likec4-lint)
         shell: bash
         run: |
           set -euo pipefail
-          for dir in ./npm/@likec4-lint/*/; do
+
+          publish_dir() {
+            local dir="$1" name version log
             name="$(node -p "require('${dir}package.json').name")"
             version="$(node -p "require('${dir}package.json').version")"
             if npm view "${name}@${version}" version >/dev/null 2>&1; then
               echo "skipping ${name}@${version}: already published"
-              continue
+              return 0
             fi
-            npm publish "$dir"
+            log="$(mktemp)"
+            if npm publish "$dir" 2>&1 | tee "$log"; then
+              return 0
+            fi
+            if grep -q -E 'E409|EPUBLISHCONFLICT|previously (published|staged)|cannot publish over' "$log"; then
+              echo "skipping ${name}@${version}: the registry already has this version"
+              return 0
+            fi
+            return 1
+          }
+
+          for dir in ./npm/@likec4-lint/*/; do
+            publish_dir "$dir"
           done
-      - name: Publish the main package
-        shell: bash
-        run: |
-          set -euo pipefail
-          name="$(node -p "require('./npm/likec4-lint/package.json').name")"
-          version="$(node -p "require('./npm/likec4-lint/package.json').version")"
-          if npm view "${name}@${version}" version >/dev/null 2>&1; then
-            echo "skipping ${name}@${version}: already published"
-            exit 0
-          fi
-          npm publish ./npm/likec4-lint
+          publish_dir ./npm/likec4-lint/

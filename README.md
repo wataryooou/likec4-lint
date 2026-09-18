@@ -1,7 +1,6 @@
 # likec4-lint
 
-Fast linter and formatter for the [LikeC4](https://likec4.dev) architecture-as-code DSL,
-written in Rust in the spirit of [Biome](https://biomejs.dev) and [oxlint](https://oxc.rs).
+Fast linter and formatter for the [LikeC4](https://likec4.dev) architecture-as-code DSL.
 
 This project is not affiliated with or endorsed by the LikeC4 project.
 
