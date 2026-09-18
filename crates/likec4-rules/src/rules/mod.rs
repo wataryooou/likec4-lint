@@ -22,6 +22,7 @@ pub mod naming_convention;
 pub mod require_tags;
 pub mod require_title;
 pub mod reserved_name;
+pub mod reserved_word;
 pub mod self_relation;
 pub mod syntax_error;
 pub mod unknown_custom_color;
@@ -241,6 +242,7 @@ registry!(
     view_without_rules,
     deprecated_element_predicate,
     reserved_name,
+    reserved_word,
     multiple_specifications,
     invalid_color,
     invalid_opacity,

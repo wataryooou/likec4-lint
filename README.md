@@ -135,7 +135,8 @@ processed regardless of `exclude`.
 | `empty-body` | warning | no | `{ }` with nothing (or only comments) inside, for every brace-owning construct (specification/model/views/deployment/global blocks, element/relation/extend/deployment-node/instance bodies, `style`, `metadata`, `group`, `rank`, predicate/style groups, dynamic-view sub-flows); import lists and `likec4lib` are excluded |
 | `view-without-rules` | warning | no | a view with no `include` / `exclude` / `global predicate`; dynamic views and views with `extends` are exempt |
 | `deprecated-element-predicate` | warning | no | `element.kind = x` / `element.tag = #x` expressions |
-| `reserved-name` | warning | no | element or view named `element`, `model`, `group`, `node`, ...; the official validator rejects a different set (`this`, `it`, `self`, `super`, `likec4lib`, `global`) that this rule does not check |
+| `reserved-name` | warning | no | element or view named `element`, `model`, `group`, `node`, ...; the official validator rejects a different set (`this`, `it`, `self`, `super`) that `reserved-word` checks instead, plus `likec4lib` and `global`, which are keywords in this tool's grammar too and surface as `syntax-error` |
+| `reserved-word` | error | yes | element kind, deployment node kind, relationship kind, element, view, deployment node or instance named `this`, `it`, `self` or `super` |
 | `multiple-specifications` | warning | no, language-server warning only | more than one `specification` block in a document |
 | `invalid-opacity` | warning | no, language-server warning only | opacity outside 0%..100% |
 | `naming-convention` | off | no | names must match the configured `pattern` regex; `targets` selects which of `element`, `view`, `deployment-node` are checked (default: `element`, `view`) |

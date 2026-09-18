@@ -534,6 +534,7 @@ Rules (id, severity, description):
 | `view-without-rules` | warning | an element or deployment view with no `include`/`exclude` or global predicate rule; a view with `extends` and any dynamic view are exempt |
 | `deprecated-element-predicate` | warning | `element.kind` / `element.tag` expressions (grammar marks them as backwards compatibility) |
 | `reserved-name` | warning | element / view / deployment node / instance named `element`, `model`, `group`, `node`, `deployment`, `instance`, `relationship` |
+| `reserved-word` | error | element kind / deployment node kind / relationship kind / element / view / deployment node / instance named `this`, `it`, `self` or `super` (the names the official validator rejects) |
 | `multiple-specifications` | warning | more than one `specification` block in a document |
 | `invalid-color` | error | bad hex length / rgb range / alpha range |
 | `invalid-opacity` | warning | opacity outside 0..100% |
