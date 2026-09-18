@@ -9,10 +9,11 @@ This project is not affiliated with or endorsed by the LikeC4 project.
   (the Langium formatter that also powers VS Code "Format Document"), without Node.js
   or a language-server start-up. Verified against 140+ oracle fixtures generated from
   the official implementation.
-- Linter: 24 project-wide rules, configurable per rule. 10 of them go beyond what
+- Linter: 24 project-wide rules, configurable per rule. 12 of them go beyond what
   `likec4 validate` reports (unused kinds and tags, empty bodies, views without rules,
-  deprecated predicates, naming conventions, required titles and tags); the other 14 cover
-  the same ground as the official validator, so one fast pass also reports the basics.
+  deprecated predicates, reserved names, several `specification` blocks per document, opacity
+  range, naming conventions, required titles and tags); the other 12 cover the same ground as
+  the official validator, so one fast pass also reports the basics.
 - Lossless parser: a hand-written lexer and recursive-descent parser producing a
   `rowan` syntax tree; every byte of the source is preserved, comments included.
 
@@ -117,23 +118,27 @@ processed regardless of `exclude`.
 | `syntax-error` | error | yes | parser diagnostics |
 | `unknown-element-kind`, `unknown-deployment-node-kind`, `unknown-relationship-kind`, `unknown-tag`, `unknown-custom-color` | error | yes | used but not declared in any `specification` of the project |
 | `duplicate-element` | error | yes | the same FQN declared twice; elements and the deployment namespace (nodes and instances) are checked separately, so an element and a deployment node may share a name |
-| `duplicate-view`, `duplicate-spec` | error | yes | the same view name, kind, tag, colour, predicate group or global style declared twice |
+| `duplicate-view` | error | yes | the same view name declared twice |
+| `duplicate-spec` | error | yes, except colours | the same kind, tag, colour, predicate group or global style declared twice; the official validator does not check colour names |
 | `unresolved-reference` | error | yes | relation endpoint, `extend`, `instanceOf`, `navigateTo`, `view ... of`, `extends`, `global predicate` / `global style` target, or a view rule element (`include` / `exclude` / `style` / `rank`) that does not exist |
 | `invalid-color` | error | yes | bad hex length, rgb component or alpha out of range |
-| `self-relation` | warning | yes, as an error | `a -> a` in model or deployment relations, comparing both endpoints after resolving them from the enclosing scope; an endpoint that does not resolve is left to `unresolved-reference` instead |
+| `self-relation` | warning | yes, as an error (`Invalid parent-child relationship`) | `a -> a` in model or deployment relations, comparing both endpoints after resolving them from the enclosing scope; an endpoint that does not resolve is left to `unresolved-reference` instead |
 | `unused-element-kind`, `unused-tag`, `unused-relationship-kind` | warning | no | declared but never used, as seen from the declaring project: a use in one of its own documents, or in a document that imports it, counts |
 | `empty-body` | warning | no | `{ }` with nothing (or only comments) inside, for every brace-owning construct (specification/model/views/deployment/global blocks, element/relation/extend/deployment-node/instance bodies, `style`, `metadata`, `group`, `rank`, predicate/style groups, dynamic-view sub-flows); import lists and `likec4lib` are excluded |
 | `view-without-rules` | warning | no | a view with no `include` / `exclude` / `global predicate`; dynamic views and views with `extends` are exempt |
 | `deprecated-element-predicate` | warning | no | `element.kind = x` / `element.tag = #x` expressions |
-| `reserved-name` | warning | yes, as an error | element or view named `element`, `model`, `group`, `node`, ... |
-| `multiple-specifications` | warning | no | more than one `specification` block in a document |
-| `invalid-opacity` | warning | yes | opacity outside 0%..100% |
+| `reserved-name` | warning | no | element or view named `element`, `model`, `group`, `node`, ...; the official validator rejects a different set (`this`, `it`, `self`, `super`, `likec4lib`, `global`) that this rule does not check |
+| `multiple-specifications` | warning | no, language-server warning only | more than one `specification` block in a document |
+| `invalid-opacity` | warning | no, language-server warning only | opacity outside 0%..100% |
 | `naming-convention` | off | no | names must match the configured `pattern` regex; `targets` selects which of `element`, `view`, `deployment-node` are checked (default: `element`, `view`) |
 | `require-title` | off | no | elements must have a title |
 | `require-tags` | off | no | elements of the configured `kinds` must carry the configured `tags` |
 
-The `in likec4 validate` column says whether the official validator reports the same problem,
-possibly under another name or severity.
+The `in likec4 validate` column says whether `likec4 validate` (likec4 1.59.3) reports the same
+problem, possibly under another name or at another severity. The official CLI prints errors
+only, so checks that the language server raises as warnings (opacity range, several
+`specification` blocks in one document) are not reported by it and count as `no`. Verified by
+running both tools over one minimal fixture per rule.
 
 Rules are project-aware: files are grouped by the nearest `likec4.config.*` / `.likec4rc`
 marker, and linting a single file or subdirectory loads the rest of its project as context.
