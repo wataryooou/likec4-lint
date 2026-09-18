@@ -1002,9 +1002,15 @@ fn max_depth(node: &SyntaxNode) -> usize {
 /// Deeply nested input must not overflow the stack: the parser caps the tree depth, reports
 /// it once and puts the rest of the input into one flat `ERROR_NODE`. The parse (and the
 /// drop of the tree) runs on a 256 KiB stack, in debug builds too.
+///
+/// Debug frames are larger on x86_64 Windows: the Unix budgets overflow there, so that
+/// target gets 1 MiB, and the full 2 MiB of a rayon worker for the parentheses below.
+/// Both still show that a document at the depth cap fits a worker thread.
 #[test]
 fn deep_nesting_is_capped_on_a_small_stack() {
     const N: usize = 100_000;
+    const SMALL_STACK: usize = if cfg!(windows) { 1024 * 1024 } else { 256 * 1024 };
+    const PAREN_STACK: usize = if cfg!(windows) { 2 * 1024 * 1024 } else { 1024 * 1024 };
     let mut elements = String::from("model {\n");
     for _ in 0..N {
         elements.push_str("a = system {\n");
@@ -1019,7 +1025,7 @@ fn deep_nesting_is_capped_on_a_small_stack() {
     }
     steps.push_str("\n  }\n}\n");
     for input in [elements, steps] {
-        parse_capped_on_stack(input, 256 * 1024);
+        parse_capped_on_stack(input, SMALL_STACK);
     }
 
     // `where` parentheses are the most expensive nesting (three recursive calls per level,
@@ -1030,7 +1036,7 @@ fn deep_nesting_is_capped_on_a_small_stack() {
     parens.push_str("kind = k");
     parens.push_str(&")".repeat(N));
     parens.push_str(" } }");
-    parse_capped_on_stack(parens, 1024 * 1024);
+    parse_capped_on_stack(parens, PAREN_STACK);
 }
 
 /// Parse `input` on a thread with `stack_size` bytes of stack and check the depth cap.

@@ -64,7 +64,8 @@ const STEP_LIMIT: u32 = 10_000_000;
 /// thousand levels and the 8 MiB main thread at a few thousand more. Dropping a rowan
 /// green tree recurses over the tree depth as well. Real documents nest a few dozen
 /// levels at most, so 512 is far above any legitimate input while keeping the parser
-/// below roughly 300 KiB of stack in debug builds (much less in release builds).
+/// below roughly 300 KiB of stack in debug builds on Linux and macOS (Windows debug frames
+/// are larger, release builds need much less).
 /// Left-nested chains built with `precede()` (`a -> b -> c ...`, `x and y and z ...`)
 /// count towards the depth exactly like block nesting.
 ///
