@@ -844,3 +844,88 @@ fn disable_next_line_comment_suppresses_a_single_warning() {
         "{report}"
     );
 }
+
+// `--format github`: GitHub Actions workflow command annotations.
+
+const UNKNOWN_TAG_MODEL: &str =
+    "specification {\n  element system\n}\nmodel {\n  a = system {\n    #t\n  }\n}\n";
+
+#[test]
+fn lint_format_github_matches_json_positions_and_prints_a_summary() {
+    let project = Project::new();
+    project.write("model.c4", UNKNOWN_TAG_MODEL);
+
+    // The github annotation must point at the same 1-based position as the JSON report.
+    let (json, json_code) = project.json(&["lint", "model.c4", "--json"]);
+    assert_eq!(rule_ids(&json), ["unknown-tag"], "{json:#}");
+    let d = &json["diagnostics"][0];
+
+    let output = project.cmd().args(["lint", "model.c4", "--format", "github"]).output().unwrap();
+    assert_eq!(output.status.code(), json_code);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines = stdout.lines();
+    let expected = format!(
+        "::error file=model.c4,line={},col={},endLine=6,endColumn=7,title=unknown-tag::\
+         Unknown tag '#t' (declare it in a specification block: tag t)",
+        d["line"], d["column"]
+    );
+    assert_eq!(lines.next(), Some(expected.as_str()), "{stdout}");
+    assert_eq!(
+        lines.next(),
+        Some("1 error(s), 0 warning(s), 0 info(s) in 1 file(s) (config: likec4-lint.toml)")
+    );
+    assert_eq!(lines.next(), None, "{stdout}");
+}
+
+#[test]
+fn github_quiet_suppresses_the_summary_line_but_not_diagnostics() {
+    let project = Project::new();
+    project.write("model.c4", UNKNOWN_TAG_MODEL);
+    let output = project.cmd().args(["lint", "model.c4", "--format", "github", "--quiet"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("::error file=model.c4"), "{stdout}");
+    assert!(!stdout.contains("error(s)"), "{stdout}");
+}
+
+#[test]
+fn check_format_github_reports_needs_formatting_without_status_lines() {
+    let project = Project::new();
+    // Lint-clean but misindented: exercises `needs-formatting` alone, without an unrelated
+    // `unknown-element-kind` diagnostic from the missing `specification` block.
+    project.write("model.c4", CLEAN_UNFORMATTED);
+    let output = project.cmd().args(["check", "model.c4", "--format", "github"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(
+            "::error file=model.c4,line=1,col=1,endLine=1,endColumn=1,title=needs-formatting::\
+             File is not formatted (run `likec4-lint format --write model.c4`)"
+        ),
+        "{stdout}"
+    );
+    // No per-file status lines and no "N of M file(s) need formatting" trailer: those are
+    // pretty-only (see `status` in commands/format.rs and commands/check.rs).
+    assert!(!stdout.contains("needs formatting model.c4"), "{stdout}");
+    assert!(!stdout.contains("file(s) need formatting"), "{stdout}");
+    assert!(
+        stdout.contains("1 error(s), 0 warning(s), 0 info(s) in 1 file(s) (config: likec4-lint.toml)"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn github_renders_a_config_diagnostic_without_a_file() {
+    let project = Project::new();
+    project.write("likec4-lint.toml", "[lint.rules]\nnope = \"off\"\n");
+    project.write("model.c4", CLEAN);
+    let output = project.cmd().args(["lint", "model.c4", "--format", "github"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.starts_with(
+            "::warning title=unknown-rule::Unknown rule 'nope' in configuration \
+             (run `likec4-lint lint --list-rules` to see the known rule ids)\n"
+        ),
+        "{stdout}"
+    );
+}

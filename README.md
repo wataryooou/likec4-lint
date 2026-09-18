@@ -66,12 +66,16 @@ likec4-lint format --stdin < model.c4  # format stdin to stdout
 likec4-lint check [PATHS...]           # lint + format --check
 likec4-lint lint --list-rules          # show all rules and their default level
 likec4-lint lint --format json         # machine-readable output
+likec4-lint lint --format github       # GitHub Actions annotations
 ```
 
 Other flags accepted by `format` (and, where they apply, by `lint` / `check`): `--diff`
 (unified diff of files that need formatting, with `--check`), `--color auto|always|never`,
 `--quiet` (diagnostics only, no per-file status or summary line), `--json` (shorthand for
-`--format json`), `--indent-width N`, `--use-tabs`, `--stdin-filepath PATH` (display name for
+`--format json`), `--format github` (one GitHub Actions workflow command per diagnostic, e.g.
+`::error file=model.c4,line=3,col=5,endLine=3,endColumn=9,title=unknown-tag::...`, for
+annotations in CI logs and PR diffs), `--indent-width N`, `--use-tabs`,
+`--stdin-filepath PATH` (display name for
 `--stdin` input) and `--config FILE`. `format --stdin --check` is meant for pre-commit hooks
 and `lint-staged`: it reads one document from stdin and, when it is not formatted, prints
 nothing to stdout (a one-line `needs formatting <name>` notice goes to stderr instead) and

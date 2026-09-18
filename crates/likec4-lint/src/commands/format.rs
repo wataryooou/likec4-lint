@@ -223,7 +223,8 @@ pub fn run(args: &FormatArgs) -> Result<u8> {
     let total = files.len();
     let pretty = common.output_format() == OutputFormat::Pretty;
     // Per-file status lines ("formatted X", "needs formatting X", ...) are human-oriented
-    // text: not in --format json (stdout stays a single JSON value) and not with --quiet.
+    // text: only in --format pretty (json and github report the same information as a
+    // diagnostic instead) and not with --quiet.
     let status = pretty && !common.quiet;
 
     let mut formatted_count = 0usize;
@@ -295,6 +296,7 @@ pub fn run(args: &FormatArgs) -> Result<u8> {
                     print!("{}", report::render_pretty(&rep, report::use_color(common.color), true))
                 }
                 OutputFormat::Json => println!("{}", report::render_json(&rep)),
+                OutputFormat::Github => print!("{}", report::render_github(&rep)),
             }
         }
     } else {

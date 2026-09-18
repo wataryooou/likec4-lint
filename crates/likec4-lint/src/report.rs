@@ -1,5 +1,5 @@
-//! Rendering of diagnostics (pretty via `annotate-snippets`, and JSON) and small
-//! shared helpers used by every subcommand.
+//! Rendering of diagnostics (pretty via `annotate-snippets`, JSON, and GitHub Actions
+//! workflow commands) and small shared helpers used by every subcommand.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -36,6 +36,8 @@ pub enum OutputFormat {
     #[default]
     Pretty,
     Json,
+    /// GitHub Actions workflow command annotations (`::error file=...,line=...::message`).
+    Github,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
@@ -508,8 +510,91 @@ pub fn render_json(report: &Report<'_>) -> String {
     serde_json::to_string_pretty(&json).expect("the JSON report only contains serializable types")
 }
 
-/// Print the report: pretty diagnostics (if any) followed by a summary line unless `quiet`,
-/// or the JSON report (always, even with no diagnostics).
+/// Escape `text` for a GitHub Actions workflow command
+/// (`::error file=...,line=...::message`). `property` additionally escapes `:` and `,`,
+/// which only matter inside a `key=value` property, not inside the trailing message. See
+/// <https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions>.
+fn escape_github(text: &str, property: bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '%' => out.push_str("%25"),
+            '\r' => out.push_str("%0D"),
+            '\n' => out.push_str("%0A"),
+            ':' if property => out.push_str("%3A"),
+            ',' if property => out.push_str("%2C"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// The workflow command for `severity` (`error`/`warning`/`notice`).
+fn github_command(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        Severity::Info => "notice",
+    }
+}
+
+/// Path for a `file=` property: [`relative_path_in`] with `\` normalized to `/`, so the
+/// annotation lines up with the PR diff on Windows too.
+fn github_path_in(path: &Path, cwd: Option<&Path>) -> String {
+    relative_path_in(path, cwd).to_string_lossy().replace('\\', "/")
+}
+
+/// Render diagnostics as GitHub Actions workflow commands, one per line:
+/// `::error file=...,line=...,col=...,endLine=...,endColumn=...,title=<rule>::<message>`.
+/// `message` is the diagnostic message, with `help` appended as ` (help)` and `related` as
+/// `; <related message>: <path>:<line>:<col>`. A diagnostic with no `file` (a configuration
+/// problem) is rendered without the location properties: `::warning title=<rule>::<message>`.
+pub fn render_github(report: &Report<'_>) -> String {
+    let cwd = std::env::current_dir().ok();
+    let indexes = line_indexes(report);
+    let position = |file: &Path, range: TextRange| -> (usize, usize, usize, usize) {
+        match (report.sources.get(file), indexes.get(file)) {
+            (Some(text), Some(index)) => {
+                let (line, col) = index.line_col(text, usize::from(range.start()));
+                let (end_line, end_col) = index.line_col(text, usize::from(range.end()));
+                (line, col, end_line, end_col)
+            }
+            _ => (1, 1, 1, 1),
+        }
+    };
+
+    let mut out = String::new();
+    for diag in report.diagnostics {
+        let command = github_command(diag.severity);
+        let title = escape_github(&diag.rule, true);
+
+        let mut message = diag.message.clone();
+        if let Some(help) = &diag.help {
+            message = format!("{message} ({help})");
+        }
+        if let Some(related) = &diag.related {
+            let (line, col, ..) = position(&related.file, related.range);
+            let path = github_path_in(&related.file, cwd.as_deref());
+            let related_message = &related.message;
+            message = format!("{message}; {related_message}: {path}:{line}:{col}");
+        }
+        let message = escape_github(&message, false);
+
+        if diag.file.as_os_str().is_empty() {
+            out.push_str(&format!("::{command} title={title}::{message}\n"));
+        } else {
+            let path = escape_github(&github_path_in(&diag.file, cwd.as_deref()), true);
+            let (line, col, end_line, end_col) = position(&diag.file, diag.range);
+            out.push_str(&format!(
+                "::{command} file={path},line={line},col={col},endLine={end_line},endColumn={end_col},title={title}::{message}\n"
+            ));
+        }
+    }
+    out
+}
+
+/// Print the report: pretty or GitHub Actions diagnostics (if any) followed by a summary
+/// line unless `quiet`, or the JSON report (always, even with no diagnostics).
 pub fn emit(report: &Report<'_>, format: OutputFormat, color: ColorMode, quiet: bool) {
     match format {
         OutputFormat::Pretty => {
@@ -522,6 +607,14 @@ pub fn emit(report: &Report<'_>, format: OutputFormat, color: ColorMode, quiet: 
         }
         OutputFormat::Json => {
             println!("{}", render_json(report));
+        }
+        OutputFormat::Github => {
+            if !report.diagnostics.is_empty() {
+                print!("{}", render_github(report));
+            }
+            if !quiet {
+                println!("{}", summary_line(report));
+            }
         }
     }
 }
@@ -603,7 +696,65 @@ pub fn retain_reported(diagnostics: &mut Vec<Diagnostic>, files: &[PathBuf]) {
 
 #[cfg(test)]
 mod tests {
+    use likec4_rules::RelatedLocation;
+
     use super::*;
+
+    #[test]
+    fn github_escapes_percent_cr_lf_in_the_message_and_colon_comma_in_properties() {
+        // Two files, each with the interesting span on line 2 so the positions aren't (1, 1)
+        // by accident.
+        let main_text = "line1\nline2 target\nline3\n";
+        let related_text = "rel1\nrel2 here\n";
+        let sources: SourceMap<'_> =
+            [(Path::new("/x/a:b,c.c4"), main_text), (Path::new("/x/other.c4"), related_text)]
+                .into_iter()
+                .collect();
+
+        let diagnostics = vec![Diagnostic {
+            rule: "test-rule".to_string(),
+            severity: Severity::Warning,
+            message: "have: 5%, more\nok".to_string(),
+            file: PathBuf::from("/x/a:b,c.c4"),
+            range: TextRange::new(TextSize::from(12), TextSize::from(18)), // "target"
+            help: Some("retry: use --fix, ok".to_string()),
+            related: Some(RelatedLocation {
+                file: PathBuf::from("/x/other.c4"),
+                range: TextRange::new(TextSize::from(10), TextSize::from(14)), // "here"
+                message: "first here".to_string(),
+            }),
+        }];
+
+        let report = Report { diagnostics: &diagnostics, sources: &sources, files: 1, config_path: None };
+
+        assert_eq!(
+            render_github(&report),
+            "::warning file=/x/a%3Ab%2Cc.c4,line=2,col=7,endLine=2,endColumn=13,title=test-rule\
+             ::have: 5%25, more%0Aok (retry: use --fix, ok); first here: /x/other.c4:2:6\n"
+        );
+    }
+
+    #[test]
+    fn github_renders_a_fileless_diagnostic_without_location_properties() {
+        let diagnostics = vec![Diagnostic {
+            rule: "unknown-rule".to_string(),
+            severity: Severity::Warning,
+            message: "Unknown rule 'nope'".to_string(),
+            file: PathBuf::new(),
+            range: TextRange::new(TextSize::from(0), TextSize::from(0)),
+            help: None,
+            related: None,
+        }];
+        let sources: SourceMap<'_> = HashMap::new();
+        let report = Report { diagnostics: &diagnostics, sources: &sources, files: 1, config_path: None };
+
+        assert_eq!(render_github(&report), "::warning title=unknown-rule::Unknown rule 'nope'\n");
+    }
+
+    #[test]
+    fn github_path_normalizes_backslashes_to_forward_slashes() {
+        assert_eq!(github_path_in(Path::new("/work/a\\b.c4"), Some(Path::new("/work"))), "a/b.c4");
+    }
 
     #[test]
     fn line_index_locates_offsets_with_char_columns() {

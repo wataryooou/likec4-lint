@@ -14,8 +14,9 @@ pub fn run(args: &CheckArgs) -> Result<u8> {
     let total = files.len();
 
     // Format-check pass. Syntax errors were already reported by the lint pass, so a
-    // skipped file only gets a status line. Status lines are human-oriented text: not in
-    // --format json (stdout stays a single JSON value) and not with --quiet.
+    // skipped file only gets a status line. Status lines are human-oriented text: only in
+    // --format pretty (json and github report the same information as a diagnostic instead)
+    // and not with --quiet.
     let pretty = common.output_format() == report::OutputFormat::Pretty;
     let status = pretty && !common.quiet;
     let mut needs_formatting_count = 0usize;

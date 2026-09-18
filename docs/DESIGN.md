@@ -591,8 +591,8 @@ filtering runs, so it is itself subject to suppression like any other diagnostic
 
 Diagnostics: `{ rule, severity, message, file, range, help, related }`, where `related` is an
 optional second location (`{ file, range, message }`, used by the `duplicate-*` rules to point
-at the first declaration). Rendered with `annotate-snippets` (pretty) or as JSON (`--format
-json`):
+at the first declaration). Rendered with `annotate-snippets` (pretty), as JSON (`--format
+json`), or as GitHub Actions workflow commands (`--format github`):
 
 ```jsonc
 {
@@ -619,13 +619,27 @@ codes: `0` no error diagnostic (a warning-only run is `0`), `1` at least one err
 --write` writing files does not itself affect the exit code), `2` a usage, configuration or
 I/O error.
 
+`--format github` prints one [GitHub Actions workflow
+command](https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions)
+per diagnostic instead of the JSON envelope: `::error
+file={path},line={line},col={col},endLine={endLine},endColumn={endColumn},title={rule}::{message}`,
+with the severity mapped to `error`/`warning`/`notice` and `path`/`line`/`col` matching the
+JSON report's `file`/`line`/`column` (`endLine`/`endColumn` come from the end of `range`
+the same way). `message` is the diagnostic message, with `help` appended as ` (help text)` and
+`related` as `; related message: path:line:col`. A diagnostic with no `file` (a configuration
+problem) is printed without the location properties: `::warning title={rule}::{message}`. Per
+the workflow command syntax, `%`, `\r` and `\n` in `message` are escaped as `%25`/`%0D`/`%0A`;
+property values (`file`, `title`) are escaped the same way plus `:` as `%3A` and `,` as `%2C`.
+Diagnostics are followed by the usual summary line unless `--quiet`; there are no per-file
+status lines in this format (those are pretty-only).
+
 ## CLI
 
 ```
-likec4-lint lint [PATHS...] [--format pretty|json] [--json] [--color auto|always|never] [--quiet] [--list-rules] [--config FILE]
+likec4-lint lint [PATHS...] [--format pretty|json|github] [--json] [--color auto|always|never] [--quiet] [--list-rules] [--config FILE]
 likec4-lint format [PATHS...] [--check] [--write] [--stdin] [--stdin-filepath PATH] [--diff]
                     [--quote-style auto|single|double|ignore] [--indent-width N] [--use-tabs]
-                    [--format pretty|json] [--json] [--color auto|always|never] [--quiet] [--config FILE]
+                    [--format pretty|json|github] [--json] [--color auto|always|never] [--quiet] [--config FILE]
 likec4-lint check [PATHS...]          # lint + format --check, same shared flags as lint
 ```
 
