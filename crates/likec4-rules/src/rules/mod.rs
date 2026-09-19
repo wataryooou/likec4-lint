@@ -19,6 +19,7 @@ pub mod invalid_color;
 pub mod invalid_opacity;
 pub mod multiple_specifications;
 pub mod naming_convention;
+pub mod parent_child_relation;
 pub mod require_tags;
 pub mod require_title;
 pub mod reserved_name;
@@ -233,6 +234,7 @@ registry!(
     duplicate_spec,
     unresolved_reference,
     self_relation,
+    parent_child_relation,
     unused_element_kind,
     unused_tag,
     unused_relationship_kind,

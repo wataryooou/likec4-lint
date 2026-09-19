@@ -210,10 +210,11 @@ impl Project {
     }
 
     /// Resolve a reference written inside `enclosing` the way LikeC4 scopes names: the first
-    /// segment is looked up among the children of the enclosing element, then among the
-    /// children of each of its ancestors, then at the root; every further segment must be a
-    /// direct child of the previous one. Returns the FQN, or `None` when a segment is unknown
-    /// in this project.
+    /// segment is looked up among the children of the enclosing element; failing that, among
+    /// its more distant descendants (the closest ones, and only when exactly one matches);
+    /// failing that, the same two steps repeat for each ancestor in turn, then at the root.
+    /// Every further segment must be a direct child of the previous one. Returns the FQN, or
+    /// `None` when a segment is unknown, or a first segment is ambiguous, in this project.
     pub fn resolve(&self, namespace: Namespace, enclosing: Option<&str>, text: &str) -> Option<String> {
         let fqns = match namespace {
             Namespace::Model => &self.names.element_fqns,
@@ -226,6 +227,9 @@ impl Project {
             let candidate = join_fqn(scope, first);
             if fqns.contains(&candidate) {
                 break candidate;
+            }
+            if let Some(descendant) = closest_descendant(fqns, scope, first) {
+                break descendant;
             }
             scope = parent_fqn(scope?);
         };
@@ -343,6 +347,48 @@ fn join_fqn(prefix: Option<&str>, name: &str) -> String {
     match prefix {
         Some(p) => format!("{p}.{name}"),
         None => name.to_string(),
+    }
+}
+
+/// `fqn`'s segments below `scope`, when `fqn` is a proper descendant of `scope` (or of the
+/// root, when `scope` is `None`).
+fn descendant_suffix<'a>(fqn: &'a str, scope: Option<&str>) -> Option<&'a str> {
+    match scope {
+        Some(s) => fqn.strip_prefix(s)?.strip_prefix('.'),
+        None => Some(fqn),
+    }
+}
+
+/// The FQN of the closest descendant of `scope` (at any depth) whose last segment is `first`,
+/// matching the way an unqualified name is resolved when it is not a direct child: `None` when
+/// there is no such descendant, or when more than one tie at the shallowest depth that has a
+/// match. A tie here does not stop [`Project::resolve`]: like "no match", it climbs to the next
+/// ancestor and tries again there (measured against `likec4 validate`: a name that is ambiguous
+/// at one scope but uniquely resolved by an outer one is valid; only a tie that persists all the
+/// way to the root is rejected, as "Could not resolve reference" — a case `unresolved-reference`
+/// does not currently replicate, since its own check is a conservative, non-scoped lookup).
+fn closest_descendant(fqns: &HashSet<String>, scope: Option<&str>, first: &str) -> Option<String> {
+    let mut closest: Option<(usize, &str)> = None;
+    let mut tied = false;
+    for fqn in fqns {
+        let Some(suffix) = descendant_suffix(fqn, scope) else { continue };
+        if last_segment(suffix) != first {
+            continue;
+        }
+        let depth = suffix.matches('.').count() + 1;
+        match closest {
+            Some((best, _)) if depth > best => {}
+            Some((best, _)) if depth == best => tied = true,
+            _ => {
+                closest = Some((depth, fqn));
+                tied = false;
+            }
+        }
+    }
+    if tied {
+        None
+    } else {
+        closest.map(|(_, fqn)| fqn.to_string())
     }
 }
 
@@ -975,6 +1021,69 @@ mod tests {
         assert_eq!(project.resolve(Namespace::Deployment, Some("n"), "api").as_deref(), Some("n.api"));
         assert_eq!(project.resolve(Namespace::Deployment, None, "n.api").as_deref(), Some("n.api"));
         assert_eq!(project.resolve(Namespace::Deployment, None, "e"), None);
+    }
+
+    /// Matches the official validator (measured against `likec4 validate`): a name that is not
+    /// a direct child of a scope still resolves to a more distant descendant of that scope, as
+    /// long as there is exactly one; a direct child always wins over a deeper one of the same
+    /// name, and a tie between two equally deep descendants is left unresolved.
+    #[test]
+    fn resolve_finds_the_closest_unambiguous_descendant() {
+        let files = [file(
+            "m.c4",
+            "model {\n  a = system {\n    b = container {\n      c = component\n    }\n    e = container {\n      d = component\n    }\n  }\n  x = system {\n    y = system\n  }\n}\n",
+        )];
+        let ws = workspace(&files);
+        let project = &ws.projects[0];
+        let resolve =
+            |enclosing: Option<&str>, text: &str| project.resolve(Namespace::Model, enclosing, text);
+        // "c" is not a direct child of "a" (only "b" and "e" are); it is found one level
+        // deeper, in "a"'s own subtree, without climbing to an ancestor.
+        assert_eq!(resolve(Some("a"), "c").as_deref(), Some("a.b.c"));
+        // From "a.b.c" (a leaf), "d" is not found in its own subtree, nor in "a.b"'s; climbing
+        // to "a" finds it in the sibling branch "a.e.d".
+        assert_eq!(resolve(Some("a.b.c"), "d").as_deref(), Some("a.e.d"));
+        // Nothing under "a" or "x" matches "y" until the search reaches "x" itself (via root).
+        assert_eq!(resolve(Some("a.b.c"), "y").as_deref(), Some("x.y"));
+    }
+
+    #[test]
+    fn resolve_prefers_a_direct_child_over_a_deeper_descendant_of_the_same_name() {
+        let files = [file(
+            "m.c4",
+            "model {\n  a = system {\n    b = container\n    x = container {\n      b = component\n    }\n  }\n}\n",
+        )];
+        let ws = workspace(&files);
+        let project = &ws.projects[0];
+        // "a.b" is a direct child; "a.x.b" also exists but is not even considered.
+        assert_eq!(project.resolve(Namespace::Model, Some("a"), "b").as_deref(), Some("a.b"));
+    }
+
+    #[test]
+    fn resolve_leaves_a_same_depth_tie_unresolved() {
+        let files = [file(
+            "m.c4",
+            "model {\n  a = system {\n    b = container {\n      c = component\n    }\n    d = container {\n      c = component\n    }\n  }\n}\n",
+        )];
+        let ws = workspace(&files);
+        let project = &ws.projects[0];
+        // "a.b.c" and "a.d.c" are equally deep descendants of "a": ambiguous, left unresolved
+        // (matches the official validator's "Could not resolve reference" for this shape).
+        assert_eq!(project.resolve(Namespace::Model, Some("a"), "c"), None);
+    }
+
+    /// Measured against `likec4 validate`: a tie does not stop the climb. "c" is ambiguous
+    /// inside "a" ("a.b.c" and "a.d.c" tie), but that does not make `-> c` (from inside "a")
+    /// unresolved: it climbs past the tie to the root, where "c" is a unique direct child.
+    #[test]
+    fn resolve_climbs_past_a_tie_to_an_outer_unambiguous_match() {
+        let files = [file(
+            "m.c4",
+            "model {\n  a = system {\n    b = system {\n      c = system\n    }\n    d = system {\n      c = system\n    }\n  }\n  c = system\n}\n",
+        )];
+        let ws = workspace(&files);
+        let project = &ws.projects[0];
+        assert_eq!(project.resolve(Namespace::Model, Some("a"), "c").as_deref(), Some("c"));
     }
 
     #[test]
