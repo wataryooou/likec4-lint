@@ -8,11 +8,13 @@ This project is not affiliated with or endorsed by the LikeC4 project.
   (the Langium formatter that also powers VS Code "Format Document"), without Node.js
   or a language-server start-up. Verified against 140+ oracle fixtures generated from
   the official implementation.
-- Linter: 24 project-wide rules, configurable per rule. 12 of them go beyond what
-  `likec4 validate` reports (unused kinds and tags, empty bodies, views without rules,
-  deprecated predicates, reserved names, several `specification` blocks per document, opacity
-  range, naming conventions, required titles and tags); the other 12 cover the same ground as
-  the official validator, so one fast pass also reports the basics.
+- Linter: 28 project-wide rules, configurable per rule. 14 of them go beyond what
+  `likec4 validate` reports (unused kinds, tags and colours, empty bodies, views without
+  rules, deprecated predicates, reserved names, several `specification` blocks per document,
+  opacity range, naming conventions, required titles and tags); the other 14 cover the same
+  ground as the official validator, so one fast pass also reports the basics. A single
+  finding can be silenced in place with a `likec4-lint-disable-next-line` comment, and
+  `--format github` prints GitHub Actions annotations.
 - Lossless parser: a hand-written lexer and recursive-descent parser producing a
   `rowan` syntax tree; every byte of the source is preserved, comments included.
 
@@ -154,13 +156,16 @@ Three forms, written as either a `//` line comment or a `/* ... */` block commen
 `unused-tag reserved-name`, `unused-tag, reserved-name`); omitting it silences every rule on
 the targeted line(s) or file. Anything after ` -- ` is a free-form reason and is ignored by
 the parser. A directive applies to every diagnostic `lint()` produces, including
-`syntax-error`; it does not apply to configuration diagnostics (`unknown-rule`,
-`unknown-rule-option`, which carry no file) or to `format`'s own `needs-formatting`.
+`syntax-error`; it does not apply to diagnostics about the configuration file (an
+`unknown-rule` for an entry under `[lint.rules]`, `unknown-rule-option`), which carry no file,
+or to `format`'s own `needs-formatting`.
 
 A rule id in `[rules]` that isn't a known rule is reported as `unknown-rule` (a warning) at
 the comment's location, the same diagnostic `[lint.rules]` produces for an unrecognised entry
 — run `likec4-lint lint --list-rules` to see the known ids. The rest of the directive's rule
-list still applies; only the unrecognised id is flagged.
+list still applies; only the unrecognised id is flagged. This `unknown-rule` is reported at
+the comment, so it carries a file and can itself be silenced by naming `unknown-rule` in a
+directive.
 
 ## Lint rules
 
@@ -181,7 +186,7 @@ list still applies; only the unrecognised id is flagged.
 | `empty-body` | warning | no | `{ }` with nothing (or only comments) inside, for every brace-owning construct (specification/model/views/deployment/global blocks, element/relation/extend/deployment-node/instance bodies, `style`, `metadata`, `group`, `rank`, predicate/style groups, dynamic-view sub-flows); import lists and `likec4lib` are excluded |
 | `view-without-rules` | warning | no | a view with no `include` / `exclude` / `global predicate`; dynamic views and views with `extends` are exempt |
 | `deprecated-element-predicate` | warning | no | `element.kind = x` / `element.tag = #x` expressions |
-| `reserved-name` | warning | no | element or view named `element`, `model`, `group`, `node`, ...; the official validator rejects a different set (`this`, `it`, `self`, `super`) that `reserved-word` checks instead, plus `likec4lib` and `global`, which are keywords in this tool's grammar too and surface as `syntax-error` |
+| `reserved-name` | warning | no | element or view named `element`, `model`, `group`, `node`, ...: words the grammar accepts as names but which read as keywords; the names the official validator rejects are covered by `reserved-word` (`this`, `it`, `self`, `super`) and by `syntax-error` (`likec4lib`, `global`, keywords in both grammars) |
 | `reserved-word` | error | yes | element kind, deployment node kind, relationship kind, element, view, deployment node or instance named `this`, `it`, `self` or `super` |
 | `multiple-specifications` | warning | no, language-server warning only | more than one `specification` block in a document |
 | `invalid-opacity` | warning | no, language-server warning only | opacity outside 0%..100% |
