@@ -299,7 +299,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "likec4-fmt"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "likec4-syntax",
  "similar",
@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "likec4-lint"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "annotate-snippets",
  "anyhow",
@@ -329,7 +329,7 @@ dependencies = [
 
 [[package]]
 name = "likec4-rules"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "likec4-syntax",
  "rayon",
@@ -341,7 +341,7 @@ dependencies = [
 
 [[package]]
 name = "likec4-syntax"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rowan",
  "text-size",
